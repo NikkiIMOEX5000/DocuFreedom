@@ -40,8 +40,14 @@ Recent-file scanning and metadata checks now run in bounded daemon workers.
 The installed menu stayed responsive and quit/restarted normally while the
 Downloads check was still waiting for OS access. Filesystem permissions must
 still be granted by the user; the app does not bypass macOS permission dialogs.
-The final Downloads card is therefore pending access on this machine, rather
-than claimed as a completed end-to-end check.
+After folder access became available, the installed app detected the new DMG
+in Downloads and its Reveal in Finder action opened that folder with the exact
+DMG selected. This completed the Downloads card end-to-end check.
+
+The final eye refinement changes only icon assets. The PNG and macOS ICNS were
+updated in the installed bundle and disk image, with strict signature and DMG
+verification repeated. The new icon was visually verified in the running menu
+panel; application code and the tested functionality are unchanged.
 
 ## Limits
 
