@@ -27,6 +27,8 @@ jobs:
           cache-dependency-path: requirements-macos.lock
       - name: Build verified Ghostscript from official source
         run: ./scripts/build-ghostscript.sh
+      - name: Verify packaging failure handling
+        run: ./scripts/test-package-dmg.sh
       - name: Build, test, verify signature and package
         run: ./build-mac.command
       - name: Verify disk image

@@ -49,6 +49,19 @@ updated in the installed bundle and disk image, with strict signature and DMG
 verification repeated. The new icon was visually verified in the running menu
 panel; application code and the tested functionality are unchanged.
 
+## Hosted build and release
+
+The first GitHub Actions run on macOS 15 ARM64 also passed all 245 tests and
+the 33 source-runtime checks, built and signed the app, and completed its frozen
+self-test. Its final DMG creation failed with `hdiutil: create failed - Resource
+busy`. The public v4.0.0 release therefore contains the verified local build;
+the uploaded installer digest matches the local checksum.
+
+Packaging now retries this specific transient error at most three times,
+preserves diagnostics, and fails immediately for other errors. Three isolated
+shell checks cover recovery, exhausted retries, and non-retryable failures. A
+real packaging-only run and disk-image verification passed locally.
+
 ## Limits
 
 - Physical printer and scanner output requires connected hardware and has not

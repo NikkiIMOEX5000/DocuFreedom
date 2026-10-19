@@ -29,11 +29,6 @@ codesign --force --deep --sign - dist/DocuFreedom.app
 codesign --verify --deep --strict dist/DocuFreedom.app
 QT_QPA_PLATFORM=offscreen dist/DocuFreedom.app/Contents/MacOS/DocuFreedom --selftest
 
-stage=$(mktemp -d "${TMPDIR:-/tmp}/dragshift-dmg.XXXXXX")
-trap 'rm -rf "$stage"' EXIT
-ditto dist/DocuFreedom.app "$stage/DocuFreedom.app"
-ln -s /Applications "$stage/Applications"
-cp INSTALL-MAC.txt "$stage/Начните здесь.txt"
-hdiutil create -volname "DocuFreedom" -srcfolder "$stage" -ov -format UDZO "dist/DocuFreedom-4.0.0-mac-$(uname -m).dmg"
+./scripts/package-dmg.sh dist/DocuFreedom.app "dist/DocuFreedom-4.0.0-mac-$(uname -m).dmg"
 (cd dist && shasum -a 256 DocuFreedom-4.0.0-mac-$(uname -m).dmg > SHA256SUMS.txt)
 echo "Готово: dist/DocuFreedom.app и установочный DMG."
