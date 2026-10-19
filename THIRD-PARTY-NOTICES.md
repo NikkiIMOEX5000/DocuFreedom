@@ -12,6 +12,7 @@ These notices do not replace the licenses of individual dependencies.
 | Qt / PySide6 | LGPLv3 / GPLv3 / commercial; <https://www.qt.io/licensing/> |
 | PyMuPDF / MuPDF | AGPLv3 / commercial; <https://github.com/pymupdf/PyMuPDF> |
 | Ghostscript 10.08.0 | AGPLv3 or later / commercial; <https://ghostscript.com/releases/gsdnld.html> |
+| LibreOffice 26.8.1 | MPL-2.0 and bundled component licenses; <https://www.libreoffice.org/licenses/> |
 | pikepdf / qpdf | MPL-2.0 / Apache-2.0; <https://github.com/pikepdf/pikepdf> |
 | pyHanko | MIT; <https://github.com/MatthiasValvekens/pyHanko> |
 
@@ -27,6 +28,13 @@ available in this repository: see `requirements-macos.lock`,
 `docs/DEPENDENCY-SOURCES.md`, and `build-mac.command`. The official Ghostscript
 source archive accompanies tagged releases; its checksum and download URL
 are recorded in `vendor/ghostscript/NOTICE.md` and the build script.
+
+The separate LibreOffice application bundle retains its original component
+and font notices. Its exact binary checksum, corresponding source archive
+URLs and source checksums are recorded in `vendor/libreoffice/NOTICE.md` in
+this repository and `libreoffice/NOTICE.md` in the installed app. The source
+archives are freely downloadable from The Document Foundation. No LibreOffice
+source modifications are made by DocuFreedom.
 
 The dog artwork is custom artwork for DocuFreedom. Drinkit and PDF24 are design
 and capability references only; no affiliation or endorsement is implied.

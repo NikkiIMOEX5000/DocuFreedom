@@ -159,7 +159,7 @@ def test_webpage_explicit_fetch_does_not_fetch_images(tmp_path):
             webpage_to_pdf(bad, tmp_path)
 
 
-def test_xlsx_preserves_sheets_unicode_formulas(tmp_path):
+def test_xlsx_preserves_sheets_unicode_and_calculated_results(tmp_path):
     from openpyxl import Workbook
     workbook = Workbook()
     sheet = workbook.active
@@ -177,8 +177,9 @@ def test_xlsx_preserves_sheets_unicode_formulas(tmp_path):
     with fitz.open(result) as document:
         text = "\n".join(page.get_text() for page in document)
         assert document.page_count == 2
-        assert "Бумага" in text and "42.5" in text
-        assert "=B2*2" in text
+        assert "Бумага" in text and ("42.5" in text or "42,5" in text)
+        assert "85" in text
+        assert "=B2*2" not in text
         assert "Second sheet text" in text
         assert "HIDDEN_SECRET" not in text
 
@@ -211,8 +212,39 @@ def test_odt_paragraph_table_image(tmp_path):
     image = io.BytesIO()
     Image.new("RGB", (30, 30), "red").save(image, "PNG")
     source = tmp_path / "document.odt"
-    content = '''<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:xlink="http://www.w3.org/1999/xlink"><office:body><office:text><text:h>Документ ODT</text:h><text:p>Hello ODT</text:p><table:table><table:table-row><table:table-cell><text:p>Cell text</text:p></table:table-cell></table:table-row></table:table><draw:frame><draw:image xlink:href="Pictures/red.png"/></draw:frame></office:text></office:body></office:document-content>'''
+    content = '''<?xml version="1.0" encoding="UTF-8"?>
+    <office:document-content office:version="1.2"
+        xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+        xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+        xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+        xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+        xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"
+        xmlns:xlink="http://www.w3.org/1999/xlink">
+      <office:body><office:text>
+        <text:h text:outline-level="1">Документ ODT</text:h><text:p>Hello ODT</text:p>
+        <table:table table:name="Example"><table:table-column/>
+          <table:table-row><table:table-cell office:value-type="string">
+            <text:p>Cell text</text:p>
+          </table:table-cell></table:table-row>
+        </table:table>
+        <text:p><draw:frame draw:name="Illustration" text:anchor-type="as-char"
+            svg:width="2cm" svg:height="2cm">
+          <draw:image xlink:href="Pictures/red.png" xlink:type="simple"
+              xlink:show="embed" xlink:actuate="onLoad"/>
+        </draw:frame></text:p>
+      </office:text></office:body>
+    </office:document-content>'''
+    manifest = '''<?xml version="1.0" encoding="UTF-8"?>
+    <manifest:manifest manifest:version="1.2"
+        xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0">
+      <manifest:file-entry manifest:full-path="/"
+          manifest:media-type="application/vnd.oasis.opendocument.text"/>
+      <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
+      <manifest:file-entry manifest:full-path="Pictures/red.png" manifest:media-type="image/png"/>
+    </manifest:manifest>'''
     with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        archive.writestr("META-INF/manifest.xml", manifest)
         archive.writestr("content.xml", content)
         archive.writestr("Pictures/red.png", image.getvalue())
     result = office_to_pdf(source)[0]

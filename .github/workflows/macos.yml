@@ -32,7 +32,7 @@ jobs:
       - name: Build, test, verify signature and package
         run: ./build-mac.command
       - name: Verify disk image
-        run: hdiutil verify dist/DocuFreedom-4.0.0-mac-arm64.dmg
+        run: hdiutil verify "dist/DocuFreedom-$(.venv/bin/python -c 'from dragshift import __version__; print(__version__)')-mac-arm64.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: DocuFreedom-mac-arm64

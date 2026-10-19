@@ -1,8 +1,8 @@
 """Local document services used by the desktop PDF workspace.
 
-OCR uses Apple's on-device Vision framework. Office and HTML conversions are
-intentionally basic layout exporters, not a substitute for an Office/browser
-printing engine. No file is uploaded by any service in this module.
+OCR uses Apple's on-device Vision framework. Office documents are rendered by
+the local LibreOffice layout engine; HTML is a static exporter without browser
+scripting. No file is uploaded by any service in this module.
 """
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ import sys
 import tempfile
 import urllib.parse
 import urllib.request
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -24,18 +23,17 @@ from typing import Callable
 import pymupdf as fitz
 from PIL import Image, ImageOps, ImageSequence
 
-from .convert import atomic_save, docx_to_pdf, flatten, open_pdf
+from .convert import atomic_save, flatten, open_pdf
 from .util import IMAGE_EXTS, UserError, sibling, unique_path
+from .office_renderer import OFFICE_FILTERS, render_office_pdf
 
-OFFICE_EXTENSIONS = {".docx", ".xlsx", ".pptx", ".odt"}
+OFFICE_EXTENSIONS = set(OFFICE_FILTERS)
 OFFICE_LIMITATIONS = (
-    "Базовая вёрстка: текст, таблицы и изображения. Диаграммы, SmartArt, макросы "
-    "и сложные эффекты не поддерживаются. Excel использует сохранённые значения "
-    "формул; формулы без сохранённого результата выводятся как текст."
+    "Документы обрабатываются локальным LibreOffice с сохранением стилей и параметров страниц. "
+    "Отсутствующие шрифты и сложные элементы Word могут изменить вёрстку."
 )
 HTML_LIMITATIONS = "Статическая HTML-страница без JavaScript; сложная вёрстка сайта может отличаться."
 MAX_HTML_BYTES = 20 * 1024 * 1024
-MAX_ZIP_UNCOMPRESSED = 256 * 1024 * 1024
 MAX_OCR_PIXELS = 24_000_000
 
 
@@ -278,188 +276,11 @@ def webpage_to_pdf(url: str, output_dir: str | Path) -> list[Path]:
     return [destination]
 
 
-def _check_office_archive(src: Path) -> None:
-    try:
-        with zipfile.ZipFile(src) as archive:
-            if sum(info.file_size for info in archive.infolist()) > MAX_ZIP_UNCOMPRESSED:
-                raise UserError("Документ слишком большой: распакованный размер превышает 256 МБ.")
-    except zipfile.BadZipFile as exc:
-        raise UserError("Повреждённый или неподдерживаемый документ Office.") from exc
-
-
-def _xlsx_to_pdf(src: Path, destination: Path) -> None:
-    import openpyxl
-    values = openpyxl.load_workbook(src, read_only=True, data_only=True)
-    formulas = openpyxl.load_workbook(src, read_only=True, data_only=False)
-    try:
-        combined = fitz.open()
-        try:
-            for sheet in values:
-                if sheet.sheet_state != "visible":
-                    continue
-                if sheet.max_row * sheet.max_column > 200_000:
-                    raise UserError("Лист Excel слишком большой для базового экспорта (более 200 000 ячеек).")
-                rows = []
-                formula_rows = formulas[sheet.title].iter_rows()
-                for value_row, formula_row in zip(sheet.iter_rows(), formula_rows):
-                    cells = []
-                    for cell, formula in zip(value_row, formula_row):
-                        value = cell.value if cell.value is not None else formula.value
-                        if isinstance(value, (dt.datetime, dt.date, dt.time)):
-                            value = value.isoformat(sep=" ") if isinstance(value, dt.datetime) else value.isoformat()
-                        text = "" if value is None else str(value)
-                        if len(text) > 32767:
-                            text = text[:32767]
-                        style = "font-weight:bold;" if cell.font and cell.font.bold else ""
-                        cells.append(f'<td style="{style}">{html.escape(text).replace(chr(10), "<br>")}</td>')
-                    rows.append("<tr>" + "".join(cells) + "</tr>")
-                markup = f"<h1>{html.escape(sheet.title)}</h1><table>{''.join(rows)}</table>"
-                with tempfile.TemporaryDirectory(prefix="dna-xlsx-") as temp:
-                    part = Path(temp) / "sheet.pdf"
-                    _render_html(markup, part, landscape=sheet.max_column > 6,
-                                 css="table {width:100%;} td {font-size:8pt; word-break:break-all;}")
-                    with fitz.open(part) as document:
-                        combined.insert_pdf(document)
-            if not combined.page_count:
-                raise UserError("В книге Excel нет видимых листов.")
-            atomic_save(lambda target: combined.save(target, garbage=4, deflate=True), destination)
-        finally:
-            combined.close()
-    finally:
-        values.close()
-        formulas.close()
-
-
-def _pptx_shapes(shapes, x_offset=0, y_offset=0, x_scale=1, y_scale=1):
-    """Yield shapes with their enclosing-group transformations applied."""
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
-    for shape in shapes:
-        left = x_offset + shape.left * x_scale
-        top = y_offset + shape.top * y_scale
-        width = shape.width * x_scale
-        height = shape.height * y_scale
-        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
-            transform = shape._element.grpSpPr.xfrm
-            sx = width / transform.chExt.cx if transform.chExt.cx else 1
-            sy = height / transform.chExt.cy if transform.chExt.cy else 1
-            yield from _pptx_shapes(shape.shapes, left - transform.chOff.x * sx,
-                                    top - transform.chOff.y * sy, sx, sy)
-        else:
-            yield shape, left, top, width, height
-
-
-def _pptx_to_pdf(src: Path, destination: Path) -> None:
-    from pptx import Presentation
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
-    presentation = Presentation(src)
-    document = fitz.open()
-    emu = 12700  # 914400 EMU/inch divided by 72 pt/inch
-    try:
-        for slide in presentation.slides:
-            page = document.new_page(width=presentation.slide_width / emu, height=presentation.slide_height / emu)
-            try:
-                background = slide.background.fill.fore_color.rgb
-                if background:
-                    page.draw_rect(page.rect, color=None, fill=tuple(value / 255 for value in background))
-            except (AttributeError, TypeError):
-                pass
-            for shape, left, top, width, height in _pptx_shapes(slide.shapes):
-                rect = fitz.Rect(left / emu, top / emu, (left + width) / emu, (top + height) / emu)
-                if rect.is_empty or rect.is_infinite:
-                    continue
-                if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-                    try:
-                        page.insert_image(rect, stream=shape.image.blob, keep_proportion=False)
-                    except Exception as exc:
-                        raise UserError("Не удалось прочитать одно из изображений PowerPoint.") from exc
-                elif shape.has_table:
-                    rows = []
-                    for row in shape.table.rows:
-                        rows.append("<tr>" + "".join(f"<td>{html.escape(cell.text)}</td>" for cell in row.cells) + "</tr>")
-                    page.insert_htmlbox(rect, "<table>" + "".join(rows) + "</table>",
-                                        css="table{border-collapse:collapse;width:100%}td{border:1px solid #999;padding:3px;font-size:12pt}")
-                elif shape.has_text_frame:
-                    paragraphs = []
-                    for paragraph in shape.text_frame.paragraphs:
-                        runs = []
-                        for run in paragraph.runs:
-                            styles = []
-                            if run.font.size:
-                                styles.append(f"font-size:{run.font.size.pt}pt")
-                            if run.font.bold:
-                                styles.append("font-weight:bold")
-                            if run.font.italic:
-                                styles.append("font-style:italic")
-                            try:
-                                if run.font.color.rgb:
-                                    styles.append(f"color:#{run.font.color.rgb}")
-                            except (AttributeError, TypeError):
-                                pass
-                            runs.append(f'<span style="{";".join(styles)}">{html.escape(run.text)}</span>')
-                        paragraphs.append("<p>" + "".join(runs) + "</p>")
-                    page.insert_htmlbox(rect, "".join(paragraphs),
-                                        css="body{font-family:sans-serif;font-size:18pt}p{margin:0 0 4pt}")
-        if not document.page_count:
-            raise UserError("Презентация не содержит слайдов.")
-        atomic_save(lambda target: document.save(target, garbage=4, deflate=True), destination)
-    finally:
-        document.close()
-
-
-def _odt_to_pdf(src: Path, destination: Path) -> None:
-    from lxml import etree
-    namespaces = {"office": "urn:oasis:names:tc:opendocument:xmlns:office:1.0", "text": "urn:oasis:names:tc:opendocument:xmlns:text:1.0",
-                  "table": "urn:oasis:names:tc:opendocument:xmlns:table:1.0", "draw": "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0",
-                  "xlink": "http://www.w3.org/1999/xlink"}
-    archive = fitz.Archive()
-    with zipfile.ZipFile(src) as source:
-        try:
-            root = etree.fromstring(source.read("content.xml"), parser=etree.XMLParser(resolve_entities=False, no_network=True))
-        except (KeyError, etree.XMLSyntaxError) as exc:
-            raise UserError("Документ ODT не содержит читаемого текста.") from exc
-
-        def content(node):
-            tag = etree.QName(node).localname
-            if tag == "image":
-                name = node.get("{" + namespaces["xlink"] + "}href", "")
-                if name in source.namelist():
-                    archive.add((source.read(name), name))
-                    return f'<img src="{html.escape(name, quote=True)}" style="max-width:100%">'
-                return ""
-            if tag == "s":
-                return "&#160;" * min(int(node.get("{" + namespaces["text"] + "}c", "1")), 1000)
-            if tag in {"line-break", "tab"}:
-                return "<br>" if tag == "line-break" else "&#160;&#160;&#160;&#160;"
-            children = html.escape(node.text or "") + "".join(content(child) + html.escape(child.tail or "") for child in node if isinstance(child.tag, str))
-            tags = {"p": "p", "h": "h2", "table": "table", "table-row": "tr", "table-cell": "td", "list": "ul", "list-item": "li"}
-            if tag in tags:
-                output_tag = tags[tag]
-                return f"<{output_tag}>{children}</{output_tag}>"
-            return children
-
-        body = root.find(".//office:text", namespaces)
-        if body is None:
-            raise UserError("В ODT-файле не найден текстовый документ.")
-        _render_html(content(body), destination, archive=archive)
-
-
 def office_to_pdf(src: str | Path) -> list[Path]:
-    """Basic offline export of DOCX, XLSX, PPTX and ODT with no Office requirement."""
+    """Render Office documents locally with their page, print and style settings."""
     src = Path(src)
-    extension = src.suffix.lower()
-    if extension not in OFFICE_EXTENSIONS:
-        raise UserError("Поддерживаются DOCX, XLSX, PPTX и ODT. Старые DOC/XLS/PPT сначала сохраните в новом формате.")
-    _check_office_archive(src)
-    if extension == ".docx":
-        return docx_to_pdf(src)
     destination = sibling(src, ext=".pdf")
-    exporters = {".xlsx": _xlsx_to_pdf, ".pptx": _pptx_to_pdf, ".odt": _odt_to_pdf}
-    try:
-        exporters[extension](src, destination)
-    except UserError:
-        raise
-    except Exception as exc:
-        raise UserError(f"Не удалось преобразовать документ: {exc}") from exc
+    render_office_pdf(src, destination)
     return [destination]
 
 

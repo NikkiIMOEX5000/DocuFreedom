@@ -1,7 +1,7 @@
 DocuFreedom 4.0 — приложение для Mac
 
 Установка
-1. Откройте DocuFreedom-4.0.0-mac-arm64.dmg.
+1. Откройте DocuFreedom-4.1.0-mac-arm64.dmg.
 2. Перетащите DocuFreedom в Applications (Программы).
 3. Запустите DocuFreedom из Программ или Spotlight.
 

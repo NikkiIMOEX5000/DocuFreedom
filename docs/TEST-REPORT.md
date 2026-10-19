@@ -1,10 +1,38 @@
-# Validation report — DocuFreedom 4.0.0
+# Validation report — DocuFreedom 4.1.0
+
+Date: 2026-10-19. All regression fixtures are generated documents; no personal files are included in this repository.
+
+## Office conversion update
+
+The former DOCX exporter rebuilt documents as simplified HTML on a fixed Letter page. DOCX, XLSX, PPTX and ODT now use the checksum-pinned LibreOffice 26.8.1.1 runtime included in the application.
+
+**272 automated tests passed**, with five upstream SWIG deprecation warnings. The source-runtime self-test passed **39 checks**.
+
+New coverage includes seven real-engine DOCX layout regressions and 20 renderer isolation/error tests. Generated documents cover Letter and A4, portrait and landscape sections, explicit page breaks, section-specific headers and footers, margins, type sizes, bold/italic/color, centered text, Cyrillic, numbered lists, horizontally/vertically merged cells, inline pictures and floating anchors. All three rendered fixture pages were visually reviewed; no clipping, overlap or missing glyphs was observed.
+
+A regression exposed a 9-point shift in inline pictures when the source omitted DrawingML distance attributes. The renderer now makes only those omitted values explicit as zero in a temporary input copy. Explicit values and floating anchors are preserved. This follows ECMA-376 Part 1 §20.4.2.8; tests cover both omitted and explicit nonzero values and verify the original file remains byte-identical.
+
+Failure tests cover missing engines, invalid/encrypted/repaired output, failed processes, timeouts, concurrent isolated profiles, output write failure and cleanup. Invalid output never replaces the previous result; there is no silent HTML fallback. Spreadsheet tests now verify real formula results and hidden-sheet handling.
+
+The frozen application passed **41 smoke checks**, including actual Office conversion and verification that the renderer resolves inside the current app bundle. Deep, strict code-signature verification passed after those conversions. The official nested LibreOffice signature is retained; Python bytecode writes are disabled in child processes so conversions do not change signed runtime resources. All python-docx templates and their required parent resource directory are included in the frozen app. The generated DMG passed `hdiutil verify`. Installed GUI checks are pending.
+
+The folder browser's Office preview still shows extracted text. The PDF produced by the Office renderer is the page-layout preview. PDF-to-Word uses a separate reconstruction path; improvements to Office-to-PDF do not establish equivalent fidelity in the reverse direction.
+
+## Fidelity limits
+
+LibreOffice reads the document's page settings and styles, but its renderer is not Microsoft Word. Missing fonts, unsupported features, and differences between Office engines may change wrapping, pagination, or complex elements. The regression suite covers representative generated inputs and does not establish pixel-identical output for every document. The user's original problematic DOCX was not supplied, so that exact file has not been validated.
+
+The following report records completed checks for the previous release only. Its pass counts must not be presented as 4.1.0 results.
+
+---
+
+## Previous release: DocuFreedom 4.0.0
 
 Local validation on Apple Silicon, macOS 26.5.2, Python 3.14 / PySide6 6.12.
 Date: 2026-10-19. All fixtures are generated test documents; no personal files
 are included in this repository.
 
-## Automated suite
+### Automated suite
 
 `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`
 
@@ -15,7 +43,7 @@ export, UI routing, folder/text/Office previews, password handling, theme
 switching, pinned tools, native menu-bar bridge, reopening, and safe quitting
 with unsaved changes. Hardware and GUI mocks are explicitly limited below.
 
-## Bundle checks
+### Bundle checks
 
 The packaging script also runs `run.py --selftest` in source and in the frozen
 application. This checks embedded native dependencies with real PDFs, Office
@@ -49,7 +77,7 @@ updated in the installed bundle and disk image, with strict signature and DMG
 verification repeated. The new icon was visually verified in the running menu
 panel; application code and the tested functionality are unchanged.
 
-## Hosted build and release
+### Hosted build and release
 
 The first GitHub Actions run on macOS 15 ARM64 also passed all 245 tests and
 the 33 source-runtime checks, built and signed the app, and completed its frozen
@@ -62,7 +90,7 @@ preserves diagnostics, and fails immediately for other errors. Three isolated
 shell checks cover recovery, exhausted retries, and non-retryable failures. A
 real packaging-only run and disk-image verification passed locally.
 
-## Limits
+### Limits of the 4.0.0 checks
 
 - Physical printer and scanner output requires connected hardware and has not
   been validated in this test environment.

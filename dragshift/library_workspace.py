@@ -522,7 +522,7 @@ class LibraryWorkspace(QWidget):
                 self.text.document().setModified(False)
                 self.preview_stack.setCurrentWidget(self.text)
                 self.pdf_controls.hide()
-                self.show_message("Текстовый предпросмотр. Для PDF-редактора создаётся копия с базовой вёрсткой; исходный документ сохраняется.")
+                self.show_message("Здесь показан только текст, без оформления. «Создать PDF и редактировать» откроет результат конвертации с оформлением документа. Исходный файл сохраняется.")
             else:
                 self._show_empty("Для этого формата нет встроенного предпросмотра. Можно открыть файл в другой программе.")
             self._refresh_buttons()

@@ -17,5 +17,7 @@ backups/
 *.pem
 vendor/sources/
 vendor/ghostscript/bin/
+vendor/libreoffice/LibreOffice.app/
+vendor/libreoffice/.archive-sha256
 private/
 tmp/

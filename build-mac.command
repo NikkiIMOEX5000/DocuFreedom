@@ -2,6 +2,7 @@
 # Reproducible build of local sources; never runs the upstream binary installer.
 set -euo pipefail
 cd "$(dirname "$0")"
+export PYTHONDONTWRITEBYTECODE=1
 
 if [ ! -x .venv/bin/python ]; then
     python3 -m venv .venv
@@ -11,6 +12,8 @@ fi
 if [ ! -x vendor/ghostscript/bin/gs ]; then
     ./scripts/build-ghostscript.sh
 fi
+./scripts/prepare-libreoffice.sh
+VERSION=$(.venv/bin/python -c 'from dragshift import __version__; print(__version__)')
 
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 QT_QPA_PLATFORM=offscreen .venv/bin/python run.py --selftest
@@ -25,10 +28,16 @@ done
 iconutil -c icns build/DragShift.iconset -o dragshift/assets/dragshift.icns
 
 .venv/bin/pyinstaller DragShift.spec --noconfirm
-codesign --force --deep --sign - dist/DocuFreedom.app
+mkdir -p dist/DocuFreedom.app/Contents/Resources/libreoffice
+ditto vendor/libreoffice/LibreOffice.app dist/DocuFreedom.app/Contents/Resources/libreoffice/LibreOffice.app
+cp vendor/libreoffice/NOTICE.md dist/DocuFreedom.app/Contents/Resources/libreoffice/NOTICE.md
+# PyInstaller signs its native libraries. Keep the official nested LibreOffice
+# signature intact, then seal the containing app and verify all nested code.
+codesign --force --sign - dist/DocuFreedom.app
 codesign --verify --deep --strict dist/DocuFreedom.app
 QT_QPA_PLATFORM=offscreen dist/DocuFreedom.app/Contents/MacOS/DocuFreedom --selftest
+codesign --verify --deep --strict dist/DocuFreedom.app
 
-./scripts/package-dmg.sh dist/DocuFreedom.app "dist/DocuFreedom-4.0.0-mac-$(uname -m).dmg"
-(cd dist && shasum -a 256 DocuFreedom-4.0.0-mac-$(uname -m).dmg > SHA256SUMS.txt)
+./scripts/package-dmg.sh dist/DocuFreedom.app "dist/DocuFreedom-$VERSION-mac-$(uname -m).dmg"
+(cd dist && shasum -a 256 "DocuFreedom-$VERSION-mac-$(uname -m).dmg" > SHA256SUMS.txt)
 echo "Готово: dist/DocuFreedom.app и установочный DMG."

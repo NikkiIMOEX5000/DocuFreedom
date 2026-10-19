@@ -69,16 +69,16 @@ def test_docx_and_text(tmp_path, pdf):
     assert convert.convert(t, "text", "DOCX")[0].exists()
 
 
-def test_docx_pdf_keeps_inline_and_table_images(tmp_path, monkeypatch):
+def test_docx_pdf_keeps_inline_and_table_images(tmp_path):
     from docx import Document
     from docx.shared import Inches
 
-    # Exercise the self-contained exporter used on a Mac without Word.
-    monkeypatch.setattr(convert, "_word_to_pdf", lambda *_: False)
+    # Exercise the actual layout engine, including a picture nested in a table.
     picture = tmp_path / "Иллюстрация.png"
     Image.new("RGB", (160, 100), "#de714f").save(picture)
     source = tmp_path / "Документ.docx"
     document = Document()
+    document.styles["Normal"].font.name = "Arial"
     document.add_paragraph("Привет, macOS!\nВторая строка.")
     document.add_picture(str(picture), width=Inches(1.5))
     cell = document.add_table(rows=1, cols=1).cell(0, 0)

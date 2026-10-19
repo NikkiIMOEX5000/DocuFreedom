@@ -3,7 +3,8 @@
 set -euo pipefail
 PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APP_PATH=${1:-"$PROJECT_DIR/dist/DocuFreedom.app"}
-OUTPUT_PATH=${2:-"$PROJECT_DIR/dist/DocuFreedom-4.0.0-mac-$(uname -m).dmg"}
+VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' "$PROJECT_DIR/dragshift/__init__.py")
+OUTPUT_PATH=${2:-"$PROJECT_DIR/dist/DocuFreedom-$VERSION-mac-$(uname -m).dmg"}
 if [ ! -d "$APP_PATH" ]; then
     echo "App bundle not found: $APP_PATH" >&2
     exit 1

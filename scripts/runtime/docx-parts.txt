@@ -1,0 +1,6 @@
+Runtime resource directory anchor for python-docx.
+
+python-docx opens header/footer templates through docx/parts/../templates.
+The operating system requires docx/parts to exist even though PyInstaller
+stores the Python modules in its PYZ archive. This resource preserves that
+directory in both frozen macOS and Windows layouts.

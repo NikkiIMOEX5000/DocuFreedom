@@ -110,6 +110,22 @@ def run() -> dict:
                 evidence = pdf_standards.inspect_standard_pdf(result)
                 record(f"Ghostscript {kind} conversion", evidence["all_fonts_embedded"] and bool(evidence["output_intents"]) and readable_pdf(result))
 
+            if sys.platform == "darwin" and getattr(sys, "frozen", False):
+                import subprocess
+                from .office_renderer import find_libreoffice, _renderer_environment
+                engine = find_libreoffice()
+                bundled_runtime = Path(sys.executable).resolve().parent.parent / "Resources" / "libreoffice"
+                record("LibreOffice resolves inside app bundle", engine is not None
+                       and engine.is_relative_to(bundled_runtime.resolve()))
+                version = subprocess.run(
+                    [str(engine), "-env:UserInstallation=" + (root / "version-profile").as_uri(),
+                     "--headless", "--version"],
+                    cwd=root, env=_renderer_environment(), stdin=subprocess.DEVNULL,
+                    capture_output=True, text=True, timeout=30,
+                )
+                record("Bundled LibreOffice executable launches", version.returncode == 0
+                       and "LibreOffice" in version.stdout)
+
             from openpyxl import Workbook, load_workbook
             workbook = Workbook()
             workbook.active.append(["Name", "Value"])
@@ -137,11 +153,69 @@ def run() -> dict:
             record("PDF → PPTX", len(Presentation(exported_pptx).slides) == 2)
 
             from docx import Document
+            from docx.enum.section import WD_ORIENT, WD_SECTION_START
+            from docx.shared import Mm, Pt, RGBColor
             document = Document()
-            document.add_paragraph("Документ DNA smoke")
+            document.styles["Normal"].font.name = "Arial"
+            document.styles["Normal"].font.size = Pt(11)
+            portrait = document.sections[0]
+            portrait.page_width, portrait.page_height = Mm(210), Mm(297)
+            portrait.left_margin = portrait.right_margin = Mm(20)
+            portrait.top_margin = portrait.bottom_margin = Mm(20)
+            portrait.header.paragraphs[0].text = "Portrait header"
+            portrait.footer.paragraphs[0].text = "Portrait footer"
+            heading = document.add_paragraph().add_run("Документ DNA smoke")
+            heading.bold = True
+            heading.font.size = Pt(18)
+            heading.font.color.rgb = RGBColor(0x9C, 0x24, 0x3E)
+            table = document.add_table(rows=2, cols=3)
+            table.style = "Table Grid"
+            table.cell(0, 0).merge(table.cell(0, 1)).text = "Merged table heading"
+            table.cell(0, 2).text = "Total"
+            for cell, text in zip(table.rows[1].cells, ("Item", "Count", "Value")):
+                cell.text = text
+            document.add_page_break()
+            document.add_paragraph("Explicit page break marker")
+            landscape = document.add_section(WD_SECTION_START.NEW_PAGE)
+            landscape.orientation = WD_ORIENT.LANDSCAPE
+            landscape.page_width, landscape.page_height = Mm(297), Mm(210)
+            landscape.left_margin = landscape.right_margin = Mm(15)
+            landscape.top_margin = landscape.bottom_margin = Mm(15)
+            landscape.header.is_linked_to_previous = False
+            landscape.footer.is_linked_to_previous = False
+            landscape.header.paragraphs[0].text = "Landscape header"
+            landscape.footer.paragraphs[0].text = "Landscape footer"
+            document.add_paragraph("Landscape section marker")
             docx = root / "Document.docx"
             document.save(docx)
-            record("DOCX → PDF", readable_pdf(native.office_to_pdf(docx)[0], "Документ"))
+            original_docx = docx.read_bytes()
+            exported_docx = native.office_to_pdf(docx)[0]
+            record("DOCX → PDF", readable_pdf(exported_docx, "Документ"))
+            with convert.fitz.open(exported_docx) as rendered:
+                expected_sizes = ((210, 297), (210, 297), (297, 210))
+                record("DOCX page sizes and section orientation", rendered.page_count == 3
+                       and all(abs(page.rect.width - width * 72 / 25.4) < 1
+                               and abs(page.rect.height - height * 72 / 25.4) < 1
+                               for page, (width, height) in zip(rendered, expected_sizes)))
+                texts = [page.get_text() for page in rendered]
+                record("DOCX explicit page and section breaks", "Explicit page break marker" in texts[1]
+                       and "Explicit page break marker" not in texts[0]
+                       and "Landscape section marker" in texts[2])
+                record("DOCX section headers and footers", all("Portrait header" in text and "Portrait footer" in text
+                       and "Landscape header" not in text for text in texts[:2])
+                       and "Landscape header" in texts[2] and "Landscape footer" in texts[2]
+                       and "Portrait header" not in texts[2])
+                spans = [span for block in rendered[0].get_text("dict")["blocks"] if "lines" in block
+                         for line in block["lines"] for span in line["spans"]]
+                record("DOCX bold text size and color", any("DNA smoke" in span["text"]
+                       and span["flags"] & 16 and abs(span["size"] - 18) < .5
+                       and span["color"] == 0x9C243E for span in spans))
+                cells = [rendered[0].search_for(text) for text in ("Merged table heading", "Item", "Count", "Value", "Total")]
+                record("DOCX merged table content and columns", all(cells)
+                       and cells[1][0].x0 < cells[2][0].x0 < cells[3][0].x0
+                       and abs(cells[0][0].x0 - cells[1][0].x0) < 2
+                       and abs(cells[4][0].x0 - cells[3][0].x0) < 2)
+            record("DOCX source unchanged", docx.read_bytes() == original_docx)
             record("PDF → DOCX", bool(Document(convert.pdf_to_docx(source)[0]).paragraphs))
             markup = root / "Local.html"
             markup.write_text("<h1>Проверка HTML</h1><p>Local static content</p>", encoding="utf-8")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import html
 import io
-import sys
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -219,91 +218,6 @@ def pdf_to_docx(src: str | Path) -> list[Path]:
 
 
 # ---------------------------------------------------------------- DOCX
-def _docx_run_html(run, archive=None) -> str:
-    from docx.oxml.ns import qn
-
-    parts = []
-    for child in run._r:
-        tag = child.tag.rsplit("}", 1)[-1]
-        if tag == "t":
-            parts.append(html.escape(child.text or ""))
-        elif tag in ("br", "cr"):
-            parts.append("<br>")
-        elif tag == "tab":
-            parts.append("&#160;&#160;&#160;&#160;")
-        elif tag == "drawing" and archive is not None:
-            for drawing in child.xpath(".//wp:inline | .//wp:anchor"):
-                blips = drawing.xpath(".//a:blip")
-                if not blips:
-                    continue
-                relation = blips[0].get(qn("r:embed"))
-                image = run.part.related_parts.get(relation)
-                if image is None:
-                    continue  # linked external images aren't fetched
-                name = str(image.partname).lstrip("/")
-                archive.add(image.blob, name)
-                extents = drawing.xpath("./wp:extent")
-                width, height = 288.0, 216.0
-                if extents:
-                    width = float(extents[0].get("cx", 3657600)) / 12700
-                    height = float(extents[0].get("cy", 2743200)) / 12700
-                scale = min(1.0, 504 / max(1, width), 620 / max(1, height))
-                parts.append(f'<img src="{html.escape(name, quote=True)}" '
-                             f'width="{width * scale:g}" height="{height * scale:g}">')
-    return "".join(parts)
-
-
-def _docx_paragraph_html(p, archive=None) -> str:
-    parts = []
-    runs = []
-    for item in p.iter_inner_content():
-        runs.extend(item.runs if hasattr(item, "runs") else [item])
-    for r in runs:
-        t = _docx_run_html(r, archive)
-        if not t:
-            continue
-        if r.bold:
-            t = f"<b>{t}</b>"
-        if r.italic:
-            t = f"<i>{t}</i>"
-        if r.underline:
-            t = f"<u>{t}</u>"
-        parts.append(t)
-    body = "".join(parts) or "&nbsp;"
-    style = (p.style.name or "").lower() if p.style is not None else ""
-    if style.startswith("heading"):
-        lvl = "".join(c for c in style if c.isdigit()) or "1"
-        lvl = str(min(int(lvl), 6))
-        return f"<h{lvl}>{body}</h{lvl}>"
-    if style == "title":
-        return f"<h1>{body}</h1>"
-    if "list" in style:
-        return f"<p>&bull; {body}</p>"
-    return f"<p>{body}</p>"
-
-
-def docx_to_html(src: str | Path, archive=None) -> str:
-    from docx import Document
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-
-    d = Document(src)
-    out = []
-    for child in d.element.body.iterchildren():
-        tag = child.tag.rsplit("}", 1)[-1]
-        if tag == "p":
-            out.append(_docx_paragraph_html(Paragraph(child, d), archive))
-        elif tag == "tbl":
-            t = Table(child, d)
-            rows = []
-            for row in t.rows:
-                cells = "".join("<td>" + "".join(_docx_paragraph_html(p, archive) for p in c.paragraphs)
-                                + "</td>" for c in row.cells)
-                rows.append(f"<tr>{cells}</tr>")
-            out.append("<table>" + "".join(rows) + "</table>")
-    return "\n".join(out)
-
-
 def docx_to_txt(src: str | Path) -> list[Path]:
     from docx import Document
     d = Document(src)
@@ -314,25 +228,6 @@ def docx_to_txt(src: str | Path) -> list[Path]:
     out = sibling(src, ext=".txt")
     out.write_text("\n".join(lines), encoding="utf-8")
     return [out]
-
-
-def _word_to_pdf(src: Path, out: Path) -> bool:
-    """Use Microsoft Word (if installed) for a perfect-fidelity export."""
-    if sys.platform != "win32":
-        return False
-    try:
-        import win32com.client  # type: ignore
-        word = win32com.client.DispatchEx("Word.Application")
-        word.Visible = False
-        try:
-            doc = word.Documents.Open(str(src.resolve()), ReadOnly=True)
-            doc.SaveAs(str(out.resolve()), FileFormat=17)  # wdFormatPDF
-            doc.Close(False)
-        finally:
-            word.Quit()
-        return out.exists()
-    except Exception:
-        return False
 
 
 CSS = """
@@ -365,11 +260,11 @@ def html_to_pdf(body_html: str, out: Path, archive=None) -> None:
 
 
 def docx_to_pdf(src: str | Path) -> list[Path]:
+    """Export DOCX through the local Office layout engine, preserving page styles."""
+    from .office_renderer import render_office_pdf
     src = Path(src)
     out = sibling(src, ext=".pdf")
-    if not _word_to_pdf(src, out):
-        archive = fitz.Archive()
-        html_to_pdf(docx_to_html(src, archive), out, archive)
+    render_office_pdf(src, out)
     return [out]
 
 

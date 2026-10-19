@@ -6,7 +6,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 onefile = os.environ.get("ONEFILE") == "1"
 heif_datas, heif_bins, heif_hidden = collect_all("pillow_heif")
 extra_data = []
-for package in ("pyhanko", "pyhanko_certvalidator", "pikepdf", "certifi", "pptx", "openpyxl", "jsonschema_specifications"):
+for package in ("pyhanko", "pyhanko_certvalidator", "pikepdf", "certifi", "docx", "pptx", "openpyxl", "jsonschema_specifications"):
     extra_data += collect_data_files(package)
 for package in ("pyHanko", "pyhanko-certvalidator", "pikepdf"):
     extra_data += copy_metadata(package)
@@ -17,7 +17,8 @@ if sys.platform == "darwin":
 
 a = Analysis(
     ["run.py"],
-    datas=[("dragshift/assets", "dragshift/assets"), ("licenses", "licenses"), ("THIRD-PARTY-NOTICES.md", "."), ("LICENSE", "."), ("CREDITS.md", "."), ("docs/FEATURES-RU.md", ".")] + heif_datas + extra_data,
+    datas=[("dragshift/assets", "dragshift/assets"), ("licenses", "licenses"), ("THIRD-PARTY-NOTICES.md", "."), ("LICENSE", "."), ("CREDITS.md", "."), ("docs/FEATURES-RU.md", "."),
+           ("scripts/runtime/docx-parts.txt", "docx/parts")] + heif_datas + extra_data,
     binaries=heif_bins + collect_dynamic_libs("pikepdf", search_patterns=["*.dylib", "*.so"]) + ([("vendor/ghostscript/bin/gs", "ghostscript/bin")] if sys.platform == "darwin" else []),
     hiddenimports=(["win32com.client"] if sys.platform == "win32" else ["AppKit", "Quartz", "Vision", "CoreML", "objc"]) + ["PySide6.QtNetwork", "PySide6.QtPrintSupport"] + heif_hidden + collect_submodules("pyhanko") + collect_submodules("pyhanko_certvalidator") + collect_submodules("asn1crypto") + collect_submodules("oscrypto") + collect_submodules("fontTools"),
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQml",
@@ -56,8 +57,8 @@ if IS_MAC:
         info_plist={
             "CFBundleName": "DocuFreedom",
             "CFBundleDisplayName": "DocuFreedom",
-            "CFBundleShortVersionString": "4.0.0",
-            "CFBundleVersion": "400",
+            "CFBundleShortVersionString": "4.1.0",
+            "CFBundleVersion": "410",
             "LSUIElement": True,
             "LSMinimumSystemVersion": "15.0",
             "CFBundleDevelopmentRegion": "ru",

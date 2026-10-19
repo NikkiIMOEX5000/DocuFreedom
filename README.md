@@ -29,12 +29,12 @@ The mascot is a simplified portrait of the creator's dog. The interface pairs co
 
 ## What you can do
 
-- **Browse and preview:** navigate local folders, search the current folder, preview PDFs, images, text, and supported Office documents. Edit PDFs and images, save text edits as a copy, or convert Office documents to PDF for editing.
+- **Browse and preview:** navigate local folders, search the current folder, preview PDFs and images, and read text previews of supported Office documents. Edit PDFs and images, save text edits as a copy, or convert Office documents to PDF for editing.
 - **Edit PDFs:** page thumbnails, reordering, rotation, deletion, text, highlights, images, drawn signatures, real content redaction, form filling, search, undo, and save-copy.
 - **Pin your tools:** star frequent actions and keep them at the front of the PDF tool catalog.
 - **Transform documents:** merge, split, extract, duplicate, crop, resize, watermark, number pages, overlay, create booklets, and arrange several pages on one sheet.
 - **Protect and inspect:** AES-256 passwords, metadata, attachments, visual comparison, structural repair, local P12/PFX signing, and offline signature integrity reports.
-- **Convert and recognize:** PDF/image/Word/text conversions, basic XLSX/PPTX/ODT import, PDF-to-PowerPoint/Excel/SVG/HTML/TIFF, and on-device English/Russian OCR with Apple Vision.
+- **Convert and recognize:** PDF/image/text conversions, DOCX/XLSX/PPTX/ODT-to-PDF export with bundled LibreOffice, PDF-to-PowerPoint/Excel/SVG/HTML/TIFF, and on-device English/Russian OCR with Apple Vision.
 - **Prepare output:** compression, real web linearization, PDF/A-2b with local validation, PDF/X-3 with ICC profiles, system printing, screen-region capture, and Image Capture scanner integration.
 - **Stay close to your files:** the menu-bar panel shows the latest result and latest file in Downloads (temporary download files are excluded), with buttons to open them or reveal their exact location in Finder.
 
@@ -48,7 +48,7 @@ Processing runs locally. The webpage-to-PDF tool fetches only the URL you explic
 2. Open it and drag **DocuFreedom.app** into **Applications**.
 3. Launch DocuFreedom. Find its overlapping-squares icon in the macOS menu bar, or launch it again from Spotlight to open the full workspace.
 
-The app runs without a Dock icon. Closing a window keeps the menu-bar companion running; use **Quit** to exit. Start at login is optional. Python, Homebrew, and a separate Ghostscript installation are not required to run the packaged app.
+The app runs without a Dock icon. Closing a window keeps the menu-bar companion running; use **Quit** to exit. Start at login is optional. Python, Homebrew, and separate LibreOffice or Ghostscript installations are not required to run the packaged app.
 
 The current build is **ad-hoc signed, not Apple notarized**. If macOS blocks a downloaded copy, follow the standard **System Settings → Privacy & Security → Open Anyway** flow after attempting to open it. We do not ask you to disable Gatekeeper.
 
@@ -58,7 +58,9 @@ On a crowded menu bar, macOS may place third-party icons behind the camera notch
 
 DocuFreedom is a standalone macOS application, not an official PDF24 or Drinkit product.
 
-- Office import and PDF-to-Word use approximate layout. Complex documents may look different from Microsoft Office.
+- Office-to-PDF export uses bundled LibreOffice to render document styles, page sizes, margins, sections, tables, headers, and footers. Missing fonts and differences between LibreOffice and Microsoft Office can still change line breaks or complex elements. For the closest result, install the fonts used by the source document.
+- The Office preview in the folder browser shows extracted text, not page layout. Use **Create PDF and edit** to see the converted pages.
+- PDF-to-Word reconstructs editable text and images from a PDF; complex layout and tables may differ. This reverse conversion does not use the Office-to-PDF renderer.
 - PDF-to-PowerPoint creates image-based slides; PDF-to-Excel extracts detected tables. It does not reconstruct an arbitrary spreadsheet.
 - OCR quality depends on the scan. HTML rendering is static and does not execute JavaScript.
 - Drawn signatures are visual marks. Certificate signing is separate; offline validation checks integrity and document coverage, not certificate trust, revocation, legal validity, or a trusted timestamp.
@@ -76,14 +78,14 @@ cd DocuFreedom
 ./build-mac.command
 ```
 
-Building requires **Python 3.14**, **Xcode Command Line Tools**, and an Apple Silicon Mac. The script creates `.venv`, installs `requirements-macos.lock`, builds a checksum-verified Ghostscript if needed, runs tests, packages the app, checks its signature, smoke-tests the frozen bundle, and creates the disk image.
+Building requires **Python 3.14**, **Xcode Command Line Tools**, and an Apple Silicon Mac. The script creates `.venv`, installs `requirements-macos.lock`, prepares checksum-verified Ghostscript and LibreOffice runtimes if needed, runs tests, packages the app, checks its signature, smoke-tests the frozen bundle, and creates the disk image.
 
 ```bash
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 QT_QPA_PLATFORM=offscreen .venv/bin/python run.py --selftest
 ```
 
-Output: `dist/DocuFreedom.app` and `dist/DocuFreedom-4.0.0-mac-arm64.dmg`.
+Output: `dist/DocuFreedom.app` and `dist/DocuFreedom-4.1.0-mac-arm64.dmg`.
 The internal Python package remains named `dragshift` to keep the upstream code lineage clear. Existing DragShift settings are read for migration; new settings belong to DocuFreedom.
 
 ## A special thank-you

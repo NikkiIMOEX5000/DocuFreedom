@@ -136,9 +136,9 @@ TOOLS = (
     Tool("to_txt", "PDF в текст", "Извлечь текст в UTF-8", "Преобразование", "T"),
     Tool("extract_images", "Извлечь изображения", "Все встроенные изображения из PDF", "Преобразование", "⇣"),
     Tool("images_pdf", "Изображения в PDF", "Собрать фотографии в один документ", "Преобразование", "▧", multiple=True, kind="image"),
-    Tool("documents_pdf", "Word и текст в PDF", "Преобразовать DOCX, TXT, HTML и Markdown", "Преобразование", "↗", multiple=True, kind="document"),
+    Tool("documents_pdf", "Word и текст в PDF", "DOCX со стилями документа; TXT, HTML и Markdown", "Преобразование", "↗", multiple=True, kind="document"),
     Tool("ocr", "Распознать текст • OCR", "Русский и английский, локально на Mac", "Преобразование", "◎", (Field("output", "Результат", "choice", "pdf", (("PDF с поиском по тексту", "pdf"), ("Обычный текст TXT", "txt"))), Field("dpi", "Разрешение OCR, dpi", "int", 200)), kind="ocr"),
-    Tool("office_pdf", "Excel / PowerPoint в PDF", "XLSX, PPTX и ODT с базовой вёрсткой", "Преобразование", "↗", kind="office"),
+    Tool("office_pdf", "Excel / PowerPoint в PDF", "XLSX, PPTX и ODT через офисный движок", "Преобразование", "↗", kind="office"),
     Tool("html_pdf", "HTML в PDF", "Локальная веб-страница без JavaScript", "Преобразование", "⌘", kind="html"),
     Tool("website_pdf", "Веб-страница в PDF", "Статическая страница по URL", "Преобразование", "⌘", (Field("url", "Адрес страницы", default="https://", hint="Только http:// или https://"),), minimum=0),
     Tool("other_pdf", "EPUB / SVG в PDF", "Также XPS, FB2 и комиксы CBZ", "Преобразование", "↗", kind="other"),
@@ -280,9 +280,15 @@ class ToolDialog(QDialog):
         col.setSpacing(16)
         col.addWidget(label(tool.title, "sectionTitle"))
         col.addWidget(label(tool.subtitle, "muted", True))
-        if tool.key in ("office_pdf", "html_pdf", "website_pdf"):
-            from .document_services import OFFICE_LIMITATIONS, HTML_LIMITATIONS
-            col.addWidget(label(OFFICE_LIMITATIONS if tool.key == "office_pdf" else HTML_LIMITATIONS, "warning", True))
+        office_source = tool.key == "office_pdf" or (
+            tool.key == "documents_pdf" and any(Path(source).suffix.lower() == ".docx" for source in sources)
+        )
+        if office_source:
+            from .document_services import OFFICE_LIMITATIONS
+            col.addWidget(label(OFFICE_LIMITATIONS, "muted", True))
+        elif tool.key in ("html_pdf", "website_pdf"):
+            from .document_services import HTML_LIMITATIONS
+            col.addWidget(label(HTML_LIMITATIONS, "warning", True))
         if tool.key in ("pdfa", "pdfx"):
             from .pdf_standards import STANDARD_LIMITATIONS
             col.addWidget(label(STANDARD_LIMITATIONS, "muted", True))
