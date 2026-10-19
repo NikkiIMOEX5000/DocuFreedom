@@ -1,0 +1,16 @@
+PySide6>=6.7
+Pillow>=11.2
+pillow-heif>=0.18
+PyMuPDF>=1.24
+numpy>=1.26
+python-docx>=1.1
+pywin32>=306; sys_platform == "win32"
+pyobjc-framework-Cocoa>=10; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10; sys_platform == "darwin"
+pyobjc-framework-Vision>=12; sys_platform == "darwin"
+pyobjc-framework-CoreML>=12; sys_platform == "darwin"
+openpyxl>=3.1
+python-pptx>=1.0
+certifi>=2026.10
+pikepdf[pdfa]>=10.17
+pyHanko>=0.38

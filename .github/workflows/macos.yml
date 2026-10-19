@@ -1,0 +1,60 @@
+name: macOS build and tests
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements-macos.lock
+      - name: Build verified Ghostscript from official source
+        run: ./scripts/build-ghostscript.sh
+      - name: Build, test, verify signature and package
+        run: ./build-mac.command
+      - name: Verify disk image
+        run: hdiutil verify dist/DocuFreedom-4.0.0-mac-arm64.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DocuFreedom-mac-arm64
+          path: |
+            dist/DocuFreedom-*.dmg
+            dist/SHA256SUMS.txt
+            vendor/sources/ghostscript-10.08.0.tar.xz
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: DocuFreedom-mac-arm64
+          path: release-assets
+      - name: Publish tagged macOS release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -d '' files < <(find release-assets -type f -print0)
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" --title "DocuFreedom $GITHUB_REF_NAME" --notes-file docs/RELEASE-NOTES.md --verify-tag
