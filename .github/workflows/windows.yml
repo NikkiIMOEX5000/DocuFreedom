@@ -46,7 +46,7 @@ jobs:
       - name: Check PowerShell syntax
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($path in @('build-windows.ps1', 'scripts/prepare-windows-runtimes.ps1', 'dragshift/assets/windows-capture.ps1')) {
+          foreach ($path in @('build-windows.ps1', 'scripts/prepare-windows-runtimes.ps1', 'scripts/test-windows-bundle.ps1', 'dragshift/assets/windows-capture.ps1')) {
             $tokens = $null
             $parseErrors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $path), [ref]$tokens, [ref]$parseErrors)
@@ -63,8 +63,7 @@ jobs:
           $install = Start-Process $installer -Wait -PassThru -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS=`"`" /DIR=`"$target`""
           if ($install.ExitCode -ne 0) { throw "Install failed: $($install.ExitCode)" }
           $env:QT_QPA_PLATFORM = 'offscreen'
-          $smoke = Start-Process "$target/DocuFreedom.exe" -ArgumentList '--selftest' -Wait -PassThru
-          if ($smoke.ExitCode -ne 0) { throw 'Installed application self-test failed' }
+          & ./scripts/test-windows-bundle.ps1 -AppPath "$target/DocuFreedom.exe"
           $uninstall = Start-Process "$target/unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
       - name: Upload diagnostics

@@ -23,11 +23,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Icon generation failed' }
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }
 
 # Keep engines intact; PyInstaller must not rewrite their DLLs or search paths.
+Write-Host 'Copying the verified LibreOffice runtime into the application'
 Copy-Item -Recurse vendor/windows/libreoffice dist/DocuFreedom/_internal/libreoffice
+Write-Host 'Copying the verified Ghostscript runtime into the application'
 Copy-Item -Recurse vendor/windows/ghostscript dist/DocuFreedom/_internal/ghostscript
 # The official GS installer normally installs Microsoft's shared CRT. Portable
 # builds instead keep the unmodified redistributable DLLs beside each engine.
 # PySide6's pinned Windows wheel already distributes this compatible VC14 CRT.
+Write-Host 'Packaging app-local Microsoft runtime libraries'
 @'
 from pathlib import Path
 import shutil
@@ -45,8 +48,7 @@ for directory in ('ghostscript/bin', 'libreoffice/program'):
 if ($LASTEXITCODE -ne 0) { throw 'App-local Microsoft runtime packaging failed' }
 Copy-Item scripts/windows-runtime-notices.md dist/DocuFreedom/WINDOWS-RUNTIME-NOTICES.md
 $app = Join-Path $PSScriptRoot 'dist/DocuFreedom/DocuFreedom.exe'
-$smoke = Start-Process -FilePath $app -ArgumentList '--selftest' -Wait -PassThru
-if ($smoke.ExitCode -ne 0) { throw 'Frozen application self-test failed' }
+& "$PSScriptRoot/scripts/test-windows-bundle.ps1" -AppPath $app
 
 $env:DOCUFREEDOM_VERSION = (& $Python -c 'from dragshift import __version__; print(__version__)').Trim()
 $inno = @("${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe", "$env:ProgramFiles/Inno Setup 6/ISCC.exe") |
