@@ -1,4 +1,30 @@
-# Validation report — DocuFreedom 4.1.0
+# Validation report — DocuFreedom 4.2.0
+
+Date: 2026-10-20. Test inputs are synthetic documents; no personal documents are published.
+
+## Source regression suite
+
+On Apple Silicon macOS, **302 tests passed and one Windows-only OCR test was skipped**. Five upstream SWIG deprecation warnings were emitted. Coverage includes the existing conversion/editor/security suite and new idle input scheduling, lazy imports, hidden-preview cleanup, PDF thumbnail bounds, encrypted undo, disk-full recovery, tray caching, and Windows adapter contracts.
+
+A generated 400-page PDF verifies that a hidden editor rasterizes no pages, visible/nearby thumbnail caches never exceed 16 entries, scrolling evicts old icons, and hiding stops raster timers and clears decoded images. Undo tests exercise 12 retained disk checkpoints, encrypted document restoration, authentication failure, partial-write cleanup, and mapped-file closure. Unsaved text survives hiding and reopening the main workspace.
+
+Cold-start tests verify that the tray and preference changes do not import Pillow, NumPy, PyMuPDF, Office libraries, or the document workspace. The macOS watcher uses mouse-down/up event monitors; the active timer is stopped between drags. Fallback polling is 100 ms while idle and 15 ms during a drag. The radial hover timer stops after animation settles, and no desktop capture/refraction worker remains.
+
+## Performance measurement
+
+`scripts/benchmark-idle.py` provides an isolated 15-second-per-phase source benchmark using temporary preferences and a generated PDF. The offscreen platform exercises the fallback watcher: approximately **10 input timer callbacks/second**, compared with approximately **67/second** in 4.1. The real macOS event backend is checked separately because offscreen Qt cannot install AppKit observers.
+
+Process RSS varies with macOS compression, loaded libraries, file caches, and the documents opened. These checks establish bounded rendering and reduced background work; they do not promise a fixed RAM footprint or zero power use. Conversion engines still consume resources while processing documents.
+
+## Release validation
+
+The source-runtime self-test passed **39 checks**. A live Cocoa material fixture passed **24 checks** for light/dark native blur, Retina alpha masks, transparent windows, settled animation, and complete cleanup on hide.
+
+Frozen macOS packaging and actual Windows CI checks are recorded here when completed. Local Mac adapter tests do not establish that a Windows installer has run successfully. Physical printers/scanners and arbitrary user documents are outside the automated suite.
+
+---
+
+# Previous release: DocuFreedom 4.1.0
 
 Date: 2026-10-19. All regression fixtures are generated documents; no personal files are included in this repository.
 

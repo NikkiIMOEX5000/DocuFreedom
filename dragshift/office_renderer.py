@@ -36,6 +36,15 @@ INLINE_DRAWING_TAGS = (
 
 def _runtime_candidates() -> list[Path]:
     candidates = []
+    if sys.platform == "win32":
+        if getattr(sys, "frozen", False):
+            root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+            candidates.append(root / "libreoffice" / "program" / "soffice.com")
+        else:
+            candidates.append(Path(__file__).resolve().parents[1] / "vendor" / "windows" / "libreoffice" / "program" / "soffice.com")
+        for variable in ("ProgramW6432", "ProgramFiles"):
+            if os.environ.get(variable):
+                candidates.append(Path(os.environ[variable]) / "LibreOffice" / "program" / "soffice.com")
     # PyInstaller's _MEIPASS can point at Contents/Frameworks. Data is under
     # Resources in a macOS app; support both layouts without depending on cwd.
     if getattr(sys, "frozen", False):
@@ -48,7 +57,7 @@ def _runtime_candidates() -> list[Path]:
     if sys.platform == "darwin":
         for applications in (Path("/Applications"), Path.home() / "Applications"):
             candidates.append(applications / "LibreOffice.app" / "Contents" / "MacOS" / "soffice")
-    for name in ("soffice", "libreoffice"):
+    for name in (("soffice.com", "soffice.exe") if sys.platform == "win32" else ("soffice", "libreoffice")):
         located = shutil.which(name)
         if located:
             candidates.append(Path(located))
@@ -60,7 +69,7 @@ def find_libreoffice() -> Path | None:
     override = os.environ.get("DOCUFREEDOM_SOFFICE")
     candidates = [Path(override).expanduser()] if override else _runtime_candidates()
     for path in candidates:
-        if path.is_file() and os.access(path, os.X_OK):
+        if path.is_file() and (sys.platform == "win32" or os.access(path, os.X_OK)):
             return path.resolve()
     return None
 
@@ -189,8 +198,9 @@ def _pdf_filter(extension: str) -> str:
 
 
 def _run_renderer(arguments: list[str], workspace: Path, timeout: float) -> None:
+    from .runtime_process import external_process
     try:
-        process = subprocess.Popen(
+        process = external_process(
             arguments, cwd=workspace, env=_renderer_environment(), stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=(os.name == "posix"),
         )
@@ -205,7 +215,8 @@ def _run_renderer(arguments: list[str], workspace: Path, timeout: float) -> None
             if os.name == "posix":
                 os.killpg(process.pid, signal.SIGKILL)
             else:
-                process.kill()
+                from .runtime_process import stop_process_tree
+                stop_process_tree(process)
         except ProcessLookupError:
             pass
         process.communicate()

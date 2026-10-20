@@ -12,8 +12,11 @@ from typing import Callable
 import re
 import unicodedata
 import math
+import os
+import sys
+import tempfile
 
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
@@ -128,7 +131,7 @@ TOOLS = (
     Tool("compare", "Сравнить PDF", "Визуальный отчёт с отличиями страниц", "Оптимизация", "⇆", (Field("other", "Второй PDF", "pdf_file"),)),
     Tool("nup", "Несколько страниц на листе", "Компактная печать 2, 4 или более страниц", "Печать", "▦", (Field("columns", "Столбцов", "small_int", 2), Field("rows", "Строк", "small_int", 1), SIZE, Field("landscape", "Альбомная ориентация", "bool", True))),
     Tool("booklet", "Брошюра", "Раскладка для двусторонней печати буклета", "Печать", "▥"),
-    Tool("print", "Печатать PDF", "Системный диалог принтера macOS", "Печать", "▣"),
+    Tool("print", "Печатать PDF", "Системный диалог принтера", "Печать", "▣"),
     Tool("blank", "Создать PDF", "Новый чистый документ нужного размера", "Создание и правки", "+", (SIZE, Field("pages", "Количество страниц", "int", 1)), minimum=0),
     Tool("to_png", "PDF в изображения", "Каждая страница — отдельный PNG", "Преобразование", "▧"),
     Tool("to_jpg", "PDF в JPG", "Страницы в формате JPEG", "Преобразование", "▧"),
@@ -137,7 +140,7 @@ TOOLS = (
     Tool("extract_images", "Извлечь изображения", "Все встроенные изображения из PDF", "Преобразование", "⇣"),
     Tool("images_pdf", "Изображения в PDF", "Собрать фотографии в один документ", "Преобразование", "▧", multiple=True, kind="image"),
     Tool("documents_pdf", "Word и текст в PDF", "DOCX со стилями документа; TXT, HTML и Markdown", "Преобразование", "↗", multiple=True, kind="document"),
-    Tool("ocr", "Распознать текст • OCR", "Русский и английский, локально на Mac", "Преобразование", "◎", (Field("output", "Результат", "choice", "pdf", (("PDF с поиском по тексту", "pdf"), ("Обычный текст TXT", "txt"))), Field("dpi", "Разрешение OCR, dpi", "int", 200)), kind="ocr"),
+    Tool("ocr", "Распознать текст • OCR", "Распознавание текста на вашем компьютере", "Преобразование", "◎", (Field("output", "Результат", "choice", "pdf", (("PDF с поиском по тексту", "pdf"), ("Обычный текст TXT", "txt"))), Field("dpi", "Разрешение OCR, dpi", "int", 200)), kind="ocr"),
     Tool("office_pdf", "Excel / PowerPoint в PDF", "XLSX, PPTX и ODT через офисный движок", "Преобразование", "↗", kind="office"),
     Tool("html_pdf", "HTML в PDF", "Локальная веб-страница без JavaScript", "Преобразование", "⌘", kind="html"),
     Tool("website_pdf", "Веб-страница в PDF", "Статическая страница по URL", "Преобразование", "⌘", (Field("url", "Адрес страницы", default="https://", hint="Только http:// или https://"),), minimum=0),
@@ -149,9 +152,9 @@ TOOLS = (
     Tool("export_tiff", "PDF в TIFF", "Многостраничное растровое изображение", "Преобразование", "▧"),
     Tool("pdfa", "PDF/A для архива", "PDF/A-2b с внедрённым цветовым профилем", "Преобразование", "A", (Field("icc_profile", "Профиль RGB ICC (необязательно)", "optional_file"),)),
     Tool("pdfx", "PDF/X для печати", "PDF/X-3:2002 с цветовым профилем CMYK", "Печать", "X", (Field("icc_profile", "Профиль CMYK ICC (необязательно)", "optional_file"),)),
-    Tool("capture", "Экран в PDF", "Выберите область экрана на Mac", "Создание и правки", "⌗", minimum=0),
-    Tool("scanner", "Сканировать документ", "Открыть «Захват изображений» macOS", "Создание и правки", "▣", minimum=0),
-    Tool("pdf_service", "Добавить в меню печати", "Открывать PDF из системного диалога", "Печать", "+", minimum=0),
+    Tool("capture", "Экран в PDF", "Выберите область экрана", "Создание и правки", "⌗", minimum=0),
+    Tool("scanner", "Сканировать документ", "Открыть мастер сканирования Windows" if sys.platform == "win32" else "Открыть «Захват изображений» macOS", "Создание и правки", "▣", minimum=0),
+    Tool("pdf_service", "Печать в PDF" if sys.platform == "win32" else "Добавить в меню печати", "Microsoft Print to PDF" if sys.platform == "win32" else "Открывать PDF из системного диалога", "Печать", "+", minimum=0),
 )
 
 
@@ -297,7 +300,10 @@ class ToolDialog(QDialog):
         if tool.key == "verify_signatures":
             col.addWidget(label("Проверяется целостность документа и охват подписью. Доверие центру сертификации и отзыв сертификата без сети не проверяются.", "muted", True))
         if tool.key == "capture":
-            col.addWidget(label("После нажатия «Выполнить» выделите область экрана. При первом запуске macOS может запросить разрешение на запись экрана.", "muted", True))
+            instructions = "После нажатия «Выполнить» выделите область экрана. Esc — отмена."
+            if sys.platform == "darwin":
+                instructions += " При первом запуске macOS может запросить разрешение на запись экрана."
+            col.addWidget(label(instructions, "muted", True))
         self.source_list = QListWidget()
         self.source_list.setMaximumHeight(145)
         for source in self.sources:
@@ -342,7 +348,7 @@ class ToolDialog(QDialog):
         if tool.kind == "pdf" and tool.key not in PASSWORD_TOOLS | {"decrypt", "merge", "blank"}:
             col.addWidget(label("Для PDF с паролем сначала создайте открытую копию инструментом «Снять пароль».", "muted", True))
         col.addLayout(form)
-        col.addWidget(label("Результат сохраняется отдельной копией на вашем Mac.", "muted", True))
+        col.addWidget(label("Результат сохраняется отдельной копией на вашем компьютере.", "muted", True))
         self.error = label("", "warning", True)
         self.error.hide()
         col.addWidget(self.error)
@@ -676,10 +682,14 @@ class PdfWorkspace(QWidget):
                 from . import document_services as native
                 if tool.key == "scanner":
                     native.open_scanner()
-                    QMessageBox.information(self, "Сканирование", "Выберите подключённый сканер в приложении «Захват изображений», сохраните документ и откройте его в DocuFreedom.")
+                    scanner = "мастере сканирования Windows" if sys.platform == "win32" else "приложении «Захват изображений»"
+                    QMessageBox.information(self, "Сканирование", f"Выберите подключённый сканер в {scanner}, сохраните документ и откройте его в DocuFreedom.")
                 else:
-                    native.install_pdf_service()
-                    QMessageBox.information(self, "Готово", "В системном диалоге печати откройте меню PDF → Open in DocuFreedom.")
+                    if sys.platform != "win32":
+                        native.install_pdf_service()
+                    instructions = ("В диалоге печати выберите Microsoft Print to PDF, сохраните файл и откройте его в DocuFreedom."
+                                    if sys.platform == "win32" else "В системном диалоге печати откройте меню PDF → Open in DocuFreedom.")
+                    QMessageBox.information(self, "Печать в PDF", instructions)
                 return
             if tool.key in ("editor", "organize", "print", "forms"):
                 editor = PdfEditor(sources[0], self.controller)
@@ -845,8 +855,87 @@ class ThumbnailDelegate(QStyledItemDelegate):
         return QSize(150, 168)
 
 
+class _PdfEditorStorage:
+    """Disk-backed undo; a restored PDF stays on disk until its open handle closes."""
+    LIMIT = 12
+
+    def __init__(self, document):
+        self.document = document
+        self.history: list[Path] = []
+        self.directory = None
+        self.active = None
+
+    def checkpoint(self):
+        if self.directory is None:
+            self.directory = tempfile.TemporaryDirectory(prefix="DocuFreedom-undo-", ignore_cleanup_errors=True)
+        descriptor, name = tempfile.mkstemp(prefix="step-", suffix=".pdf", dir=self.directory.name)
+        os.close(descriptor)
+        path = Path(name)
+        try:
+            # Keep compressed streams as they are: re-compressing and deduplicating
+            # an entire PDF on every edit wastes CPU and does not improve undo.
+            self.document.save(path, encryption=fitz.PDF_ENCRYPT_KEEP)
+            if os.name == "posix":
+                # MuPDF may replace the mkstemp file while writing; the private
+                # directory already protects it, and retain owner-only mode too.
+                path.chmod(0o600)
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        self.history.append(path)
+        if len(self.history) > self.LIMIT:
+            self._discard(self.history.pop(0))
+
+    @staticmethod
+    def _discard(path):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            # The private directory is retried on close. A transient antivirus
+            # file lock must not corrupt the editor's current document/state.
+            pass
+
+    def undo(self, password):
+        path = self.history[-1]
+        replacement = None
+        try:
+            replacement = fitz.open(path)
+            if replacement.needs_pass and not replacement.authenticate(password):
+                raise UserError("Не удалось восстановить защищённый документ.")
+            if not replacement.page_count:
+                raise UserError("Не удалось восстановить страницы документа.")
+        except Exception:
+            if replacement is not None:
+                replacement.close()
+            raise
+        # Never remove a file that is still mapped by MuPDF (especially on Windows).
+        previous_active = self.active
+        try:
+            self.document.close()
+        except Exception:
+            replacement.close()
+            raise
+        self.document = replacement
+        self.active = path
+        self.history.pop()
+        if previous_active is not None:
+            self._discard(previous_active)
+        return replacement
+
+    def close(self):
+        if not self.document.is_closed:
+            self.document.close()
+        self.history.clear()
+        self.active = None
+        if self.directory is not None:
+            self.directory.cleanup()
+            self.directory = None
+
+
 class PdfEditor(QMainWindow):
-    """Visual editor on an in-memory document; original bytes stay untouched."""
+    """Visual editor with bounded previews and disk-backed undo; originals stay untouched."""
+    THUMBNAIL_LIMIT = 16
+    THUMBNAIL_MARGIN = 2
     def __init__(self, source, controller):
         super().__init__()
         self.controller = controller
@@ -854,7 +943,6 @@ class PdfEditor(QMainWindow):
         self.doc = fitz.open(source)
         self._source_password = ""
         self._processing = False
-        self._resume_thumbs = False
         if self.doc.needs_pass:
             password, ok = QInputDialog.getText(None, "Открыть PDF", "Пароль документа", QLineEdit.Password)
             if not ok or not self.doc.authenticate(password):
@@ -864,7 +952,13 @@ class PdfEditor(QMainWindow):
         if not self.doc.page_count:
             self.doc.close()
             raise UserError("В документе нет страниц.")
-        self.history = []
+        self._storage = _PdfEditorStorage(self.doc)
+        self.history = self._storage.history
+        self.destroyed.connect(lambda *_args, store=self._storage: store.close())
+        self._thumb_cached: set[int] = set()
+        self._thumb_queue: list[int] = []
+        self._rendered_page = None
+        self._revision = 0
         self.dirty = False
         self.zoom = 1.0
         self.image_data = None
@@ -917,7 +1011,7 @@ class PdfEditor(QMainWindow):
         col.addLayout(search_row)
         self._search_matches = []
         self._search_index = -1
-        self.mode_hint = label("Перетаскивайте миниатюры для изменения порядка. ⌘ — выбрать несколько страниц.", "muted", True)
+        self.mode_hint = label(self.selection_hint(), "muted", True)
         col.addWidget(self.mode_hint)
         split = QSplitter()
         self.thumbs = QListWidget()
@@ -925,6 +1019,8 @@ class PdfEditor(QMainWindow):
         self.thumbs.setIconSize(QSize(106, 142))
         self.thumbs.setItemDelegate(ThumbnailDelegate(self.thumbs))
         self.thumbs.setSpacing(7)
+        self.thumbs.setUniformItemSizes(True)
+        self.thumbs.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.thumbs.setMinimumWidth(165)
         self.thumbs.setMaximumWidth(240)
         self.thumbs.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -953,8 +1049,10 @@ class PdfEditor(QMainWindow):
             shortcut.activated.connect(callback)
             self.shortcuts.append(shortcut)
         self.thumb_timer = QTimer(self)
-        self.thumb_timer.setInterval(0)
+        self.thumb_timer.setInterval(35)
         self.thumb_timer.timeout.connect(self._next_thumbnail)
+        self.thumbs.verticalScrollBar().valueChanged.connect(self._schedule_thumbnails)
+        self.thumbs.verticalScrollBar().rangeChanged.connect(self._schedule_thumbnails)
         self.refresh_pages()
         theme.register_window(self)
         theme.manager().changed.connect(self._theme_changed)
@@ -963,22 +1061,32 @@ class PdfEditor(QMainWindow):
         self.thumbs.viewport().update()
         self.canvas.update()
 
+    @staticmethod
+    def selection_hint():
+        modifier = "⌘" if sys.platform == "darwin" else "Ctrl"
+        return f"Перетаскивайте миниатюры для изменения порядка. {modifier} — выбрать несколько страниц."
+
     def checkpoint(self):
-        self.history.append(self.doc.tobytes(garbage=3, deflate=True, encryption=fitz.PDF_ENCRYPT_KEEP))
-        if len(self.history) > 12:
-            self.history.pop(0)
+        if self._processing or self.doc.is_closed:
+            return False
+        try:
+            self._storage.checkpoint()
+        except Exception as exc:
+            self.status.setText(f"Не удалось сохранить шаг отмены. Изменение не выполнено: {exc}")
+            return False
         self.dirty = True
         self.undo_button.setEnabled(True)
+        return True
 
     def undo(self):
         if self._processing or not self.history:
             return
-        data = self.history.pop()
         current = self.thumbs.currentRow()
-        self.doc.close()
-        self.doc = fitz.open(stream=data, filetype="pdf")
-        if self.doc.needs_pass and not self.doc.authenticate(self._source_password):
-            raise UserError("Не удалось восстановить защищённый документ.")
+        try:
+            self.doc = self._storage.undo(self._source_password)
+        except Exception as exc:
+            self.status.setText(f"Не удалось отменить изменение: {exc}")
+            return
         self.dirty = True
         self.undo_button.setEnabled(bool(self.history))
         self.refresh_pages(current)
@@ -986,6 +1094,10 @@ class PdfEditor(QMainWindow):
 
     def refresh_pages(self, current=0):
         self.thumb_timer.stop()
+        self._thumb_queue.clear()
+        self._thumb_cached.clear()
+        self._revision += 1
+        self._rendered_page = None
         self._reset_search()
         self._building = True
         self.thumbs.clear()
@@ -994,22 +1106,87 @@ class PdfEditor(QMainWindow):
             item.setData(Qt.UserRole, index)
             item.setSizeHint(QSize(140, 165))
             self.thumbs.addItem(item)
-        self._building = False
         self.thumbs.setCurrentRow(min(max(0, current), self.doc.page_count - 1))
-        self._thumb_index = 0
-        self.thumb_timer.start()
+        self._building = False
+        self._schedule_thumbnails()
         self.render_page()
 
-    def _next_thumbnail(self):
-        if self._processing or self.doc.is_closed or self._thumb_index >= self.doc.page_count:
+    def _thumbnail_rows(self):
+        """Visible pages plus a small look-ahead, independent of document length."""
+        height = self.thumbs.viewport().height()
+        x = self.thumbs.viewport().width() // 2
+        first = last = -1
+        for offset in range(0, min(height, 180), 8):
+            if first < 0:
+                first = self.thumbs.indexAt(QPoint(x, offset)).row()
+            if last < 0:
+                last = self.thumbs.indexAt(QPoint(x, height - 1 - offset)).row()
+            if first >= 0 and last >= 0:
+                break
+        if first < 0:
+            first = max(0, self.thumbs.currentRow())
+        if last < first:
+            last = min(self.doc.page_count - 1, first + max(1, height // 165))
+        start = max(0, first - self.THUMBNAIL_MARGIN)
+        stop = min(self.doc.page_count, last + self.THUMBNAIL_MARGIN + 1)
+        return set(range(start, min(stop, start + self.THUMBNAIL_LIMIT)))
+
+    def _schedule_thumbnails(self, *_):
+        if self._building or self._processing or not self.isVisible() or self.doc.is_closed:
             self.thumb_timer.stop()
             return
-        index = self._thumb_index
-        page = self.doc[index]
-        scale = min(106 / page.rect.width, 130 / page.rect.height)
-        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-        self.thumbs.item(index).setIcon(QIcon(self._pixmap(pix)))
-        self._thumb_index += 1
+        desired = self._thumbnail_rows()
+        for index in self._thumb_cached - desired:
+            item = self.thumbs.item(index)
+            if item is not None:
+                item.setIcon(QIcon())
+        self._thumb_cached.intersection_update(desired)
+        self._thumb_queue = sorted(desired - self._thumb_cached)
+        if self._thumb_queue and not self.thumb_timer.isActive():
+            self.thumb_timer.start()
+        elif not self._thumb_queue:
+            self.thumb_timer.stop()
+
+    def _next_thumbnail(self):
+        if self._processing or not self.isVisible() or self.doc.is_closed or not self._thumb_queue:
+            self.thumb_timer.stop()
+            return
+        index = self._thumb_queue.pop(0)
+        try:
+            page = self.doc[index]
+            scale = self.safe_scale(page, min(106 / page.rect.width, 130 / page.rect.height),
+                                    max_side=142, max_pixels=20000)
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            self.thumbs.item(index).setIcon(QIcon(self._pixmap(pix)))
+            self._thumb_cached.add(index)
+        except Exception as exc:
+            self.status.setText(f"Не удалось создать миниатюру страницы {index + 1}: {exc}")
+        if not self._thumb_queue:
+            self.thumb_timer.stop()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, "thumb_timer"):
+            self.render_page()
+            self._schedule_thumbnails()
+
+    def hideEvent(self, event):
+        if hasattr(self, "thumb_timer"):
+            self.thumb_timer.stop()
+            self._thumb_queue.clear()
+            for index in self._thumb_cached:
+                item = self.thumbs.item(index)
+                if item is not None:
+                    item.setIcon(QIcon())
+            self._thumb_cached.clear()
+            self.canvas.clear()
+            self._rendered_page = None
+        super().hideEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "thumb_timer"):
+            self._schedule_thumbnails()
 
     @staticmethod
     def _pixmap(pix):
@@ -1017,20 +1194,24 @@ class PdfEditor(QMainWindow):
         return QPixmap.fromImage(image)
 
     def render_page(self, *_):
-        if self._building or self.doc.is_closed or self._processing:
+        if self._building or self.doc.is_closed or self._processing or not self.isVisible():
             return
         current = self.thumbs.currentRow()
         if current < 0 or current >= self.doc.page_count:
             return
         page = self.doc[current]
         self.zoom = self.safe_scale(page, self.zoom)
+        self.zoom_label.setText(f"{round(self.zoom * 100)}%")
+        self.status.setText(f"Страница {current + 1} из {self.doc.page_count}  ·  {round(page.rect.width)} × {round(page.rect.height)} pt" + ("  ·  Есть несохранённые изменения" if self.dirty else ""))
+        key = (current, self.zoom, self._revision)
+        if key == self._rendered_page:
+            return
         pix = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
         image = self._pixmap(pix)
         self.canvas.setPixmap(image)
+        self._rendered_page = key
         self.canvas.search_rects = []
         self.canvas.setFixedSize(image.size())
-        self.zoom_label.setText(f"{round(self.zoom * 100)}%")
-        self.status.setText(f"Страница {current + 1} из {self.doc.page_count}  ·  {round(page.rect.width)} × {round(page.rect.height)} pt" + ("  ·  Есть несохранённые изменения" if self.dirty else ""))
 
     @staticmethod
     def safe_scale(page, requested, max_side=4096, max_pixels=10_000_000):
@@ -1048,13 +1229,10 @@ class PdfEditor(QMainWindow):
         self._processing = busy
         self.centralWidget().setEnabled(not busy)
         if busy:
-            self._resume_thumbs = self.thumb_timer.isActive()
             self.thumb_timer.stop()
             self.status.setText("Идёт обработка файлов. Редактор продолжит работу после завершения.")
         else:
-            if self._resume_thumbs and not self.doc.is_closed:
-                self.thumb_timer.start()
-            self._resume_thumbs = False
+            self._schedule_thumbnails()
             self.render_page()
 
     def _reset_search(self):
@@ -1101,13 +1279,16 @@ class PdfEditor(QMainWindow):
         order = [self.thumbs.item(i).data(Qt.UserRole) for i in range(self.thumbs.count())]
         if order == list(range(self.doc.page_count)):
             return
-        self.checkpoint()
+        if not self.checkpoint():
+            self.refresh_pages(self.thumbs.currentRow())
+            return
         self.doc.select(order)
         self.refresh_pages(self.thumbs.currentRow())
 
     def rotate_selected(self, angle):
         rows = self.selected_rows()
-        self.checkpoint()
+        if not self.checkpoint():
+            return
         for row in rows:
             page = self.doc[row]
             page.set_rotation((page.rotation + angle) % 360)
@@ -1118,7 +1299,8 @@ class PdfEditor(QMainWindow):
         if len(rows) >= self.doc.page_count:
             self.status.setText("В PDF должна остаться хотя бы одна страница.")
             return
-        self.checkpoint()
+        if not self.checkpoint():
+            return
         self.doc.select([row for row in range(self.doc.page_count) if row not in rows])
         self.refresh_pages(min(rows[0], self.doc.page_count - 1))
 
@@ -1138,7 +1320,7 @@ class PdfEditor(QMainWindow):
         self.canvas.mode = mode
         self.canvas.setCursor(Qt.ArrowCursor if mode == "Просмотр" else Qt.CrossCursor)
         hints = {
-            "Просмотр": "Перетаскивайте миниатюры для изменения порядка. ⌘ — выбрать несколько страниц.",
+            "Просмотр": self.selection_hint(),
             "Текст": "Нажмите на странице, чтобы вставить текст. Результат сохраняется отдельной копией.",
             "Маркер": "Выделите прямоугольник на странице для жёлтой подсветки.",
             "Примечание": "Нажмите на странице, чтобы добавить примечание.",
@@ -1157,7 +1339,8 @@ class PdfEditor(QMainWindow):
         if mode not in ("Маркер", "Скрыть данные", "Изображение", "Подпись"):
             return
         rect = self.pdf_rect(rectangle)
-        self.checkpoint()
+        if not self.checkpoint():
+            return
         try:
             page = self.doc[self.thumbs.currentRow()]
             rect = rect & page.rect * page.derotation_matrix
@@ -1194,7 +1377,8 @@ class PdfEditor(QMainWindow):
     def insert_text(self, position, text, fontsize=14, note=False):
         page = self.doc[self.thumbs.currentRow()]
         point = fitz.Point(position.x() / self.zoom, position.y() / self.zoom) * page.derotation_matrix
-        self.checkpoint()
+        if not self.checkpoint():
+            return
         try:
             if note:
                 page.add_text_annot(point, text)
@@ -1254,7 +1438,8 @@ class PdfEditor(QMainWindow):
         col.addWidget(buttons)
         if dialog.exec() != QDialog.Accepted:
             return
-        self.checkpoint()
+        if not self.checkpoint():
+            return
         for page_index, xref, field in fields:
             page = self.doc[page_index]
             widget = page.load_widget(xref)
@@ -1336,5 +1521,7 @@ class PdfEditor(QMainWindow):
                 event.ignore()
                 return
         self.thumb_timer.stop()
-        self.doc.close()
+        self._storage.close()
+        self._source_password = ""
+        self.image_data = None
         event.accept()

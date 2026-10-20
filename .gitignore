@@ -16,6 +16,7 @@ backups/
 *.key
 *.pem
 vendor/sources/
+vendor/windows/
 vendor/ghostscript/bin/
 vendor/libreoffice/LibreOffice.app/
 vendor/libreoffice/.archive-sha256

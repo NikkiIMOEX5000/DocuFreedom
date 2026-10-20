@@ -126,6 +126,38 @@ def test_pdf_preview_page_controls_pause_and_resume(workspace, files, monkeypatc
     assert files.pdf.read_bytes() == original
 
 
+def test_hidden_preview_releases_pdf_and_resumes_same_page(workspace, files, qapp):
+    workspace.show()
+    workspace.open_paths([files.pdf])
+    workspace.page.setValue(2)
+    document = workspace._pdf
+    assert not workspace.picture.pixmap().isNull()
+    workspace.hide()
+    assert document.is_closed and workspace._pdf is None
+    assert workspace.picture.pixmap().isNull()
+    assert not workspace.preview_timer.isActive()
+    workspace.render_preview()
+    assert workspace._pdf is None
+    workspace.show()
+    workspace.render_preview()
+    assert workspace._pdf is not None and workspace.page.value() == 2
+    assert not workspace.picture.pixmap().isNull()
+
+
+def test_hiding_workspace_keeps_unsaved_text(workspace, files):
+    workspace.show()
+    workspace.open_paths([files.text])
+    workspace.edit_selected()
+    workspace.text.setPlainText("Unsaved text survives tray mode")
+    workspace.text.document().setModified(True)
+    workspace.hide()
+    workspace.show()
+    workspace.render_preview()
+    assert workspace.text.toPlainText() == "Unsaved text survives tray mode"
+    assert workspace.text.document().isModified()
+    workspace.text.document().setModified(False)
+
+
 def test_image_and_office_previews_are_read_only_and_actions_work(workspace, files):
     image_original = files.image.read_bytes()
     office_original = files.office.read_bytes()

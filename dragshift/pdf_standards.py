@@ -29,18 +29,20 @@ STANDARD_LIMITATIONS = (
 def _bundle() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "ghostscript"
-    return Path(__file__).resolve().parents[1] / "vendor" / "ghostscript"
+    vendor = Path(__file__).resolve().parents[1] / "vendor"
+    return vendor / "windows" / "ghostscript" if sys.platform == "win32" else vendor / "ghostscript"
 
 
 def ghostscript_path() -> Path:
-    executable = _bundle() / "bin" / "gs"
+    executable = _bundle() / "bin" / ("gswin64c.exe" if sys.platform == "win32" else "gs")
     if not executable.is_file():
         raise UserError("В этой сборке отсутствует встроенный Ghostscript для экспорта PDF/A и PDF/X.")
     return executable
 
 
 def standards_available() -> bool:
-    return (_bundle() / "bin" / "gs").is_file() and (_bundle() / "iccprofiles" / "srgb.icc").is_file()
+    executable = "gswin64c.exe" if sys.platform == "win32" else "gs"
+    return (_bundle() / "bin" / executable).is_file() and (_bundle() / "iccprofiles" / "srgb.icc").is_file()
 
 
 def _profile(path: str | Path | None, kind: str) -> Path:
@@ -162,7 +164,9 @@ def _convert(src: str | Path, kind: str, icc_profile: str | Path | None = None) 
             try:
                 environment = {key: value for key, value in os.environ.items()
                                if key not in {"GS_OPTIONS", "GS_LIB", "GS_FONTPATH", "GS_DEVICE"}}
-                result = subprocess.run(args, capture_output=True, text=True, errors="replace", timeout=600, env=environment)
+                from .runtime_process import external_run
+                result = external_run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      text=True, errors="replace", timeout=600, env=environment)
             except subprocess.TimeoutExpired as exc:
                 raise UserError("Конвертация превысила 10 минут. Разделите PDF на несколько частей.") from exc
             if result.returncode:

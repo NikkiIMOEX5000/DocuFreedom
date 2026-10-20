@@ -332,6 +332,7 @@ def test_svg_to_pdf(tmp_path):
         assert "Vector document" in document[0].get_text()
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS Print PDF service")
 def test_pdf_service_idempotent_does_not_replace(tmp_path):
     application = tmp_path / "DNA.apps.app"
     application.mkdir()
@@ -346,6 +347,7 @@ def test_pdf_service_idempotent_does_not_replace(tmp_path):
         assert service.read_text() == "user content"
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS interactive capture backend")
 def test_capture_cancellation_does_not_create_pdf(tmp_path):
     with patch("dragshift.document_services.subprocess.run") as run:
         run.return_value.stderr = ""
@@ -368,6 +370,7 @@ def test_epub_to_pdf(tmp_path):
         assert "Text from a book" in document[0].get_text()
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS interactive capture backend")
 def test_capture_success_converts_selected_image_only(tmp_path):
     def screenshot(args, **kwargs):
         Image.new("RGB", (300, 200), (120, 30, 60)).save(args[-1])

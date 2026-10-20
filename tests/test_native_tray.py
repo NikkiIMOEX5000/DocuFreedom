@@ -201,6 +201,7 @@ def test_offscreen_never_creates_native_status(qt):
             platform_mac.NativeStatusItem(None)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix socket handoff; Windows uses named pipes")
 def test_second_launch_opens_full_workspace_and_quiet_stays_quiet(monkeypatch):
     import socket
     sock = MagicMock()
@@ -216,6 +217,7 @@ def test_second_launch_opens_full_workspace_and_quiet_stays_quiet(monkeypatch):
     assert handoff.try_handoff(["DocuFreedom", "--selftest"]) is False
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS LaunchAgent migration")
 def test_login_item_migration_preserves_existing_opt_in_only(tmp_path, monkeypatch):
     new = tmp_path / "apps.dna.DocuFreedom.plist"
     old = tmp_path / "com.dragshift.app.plist"
@@ -249,12 +251,12 @@ def test_build_selftests_cannot_migrate_login_item(tmp_path, monkeypatch):
 
 def test_reopen_hidden_workspace_does_not_depend_on_tray_geometry():
     from dragshift.app import DragShiftApp
-    controller = SimpleNamespace(desktop=Mock(), tray_panel=Mock(), windows=[], show_main=Mock())
-    controller.desktop.isVisible.return_value = False
-    controller.tray_panel.isVisible.return_value = False
+    controller = SimpleNamespace(_desktop=Mock(), _tray_panel=Mock(), windows=[], show_main=Mock())
+    controller._desktop.isVisible.return_value = False
+    controller._tray_panel.isVisible.return_value = False
     DragShiftApp.reopen_if_hidden(controller)
     controller.show_main.assert_called_once()
-    controller.desktop.isVisible.return_value = True
+    controller._desktop.isVisible.return_value = True
     DragShiftApp.reopen_if_hidden(controller)
     assert controller.show_main.call_count == 1
 
@@ -275,7 +277,7 @@ def test_quit_cancel_in_library_keeps_all_editors_and_process_alive():
     from dragshift.app import DragShiftApp
     library, editor, app = Mock(), Mock(), Mock()
     library.confirm_leave.return_value = False
-    controller = SimpleNamespace(active_jobs=0, desktop=SimpleNamespace(library=library), windows=[editor], qapp=app)
+    controller = SimpleNamespace(active_jobs=0, _desktop=SimpleNamespace(library=library), windows=[editor], qapp=app)
     DragShiftApp.request_quit(controller)
     assert not editor.close.called
     assert not app.quit.called
@@ -298,7 +300,7 @@ def test_quit_respects_real_pdf_editor_cancel(qt, tmp_path, monkeypatch, answer,
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (save_path, 'PDF (*.pdf)'))
     app = Mock()
     library = SimpleNamespace(confirm_leave=lambda: True)
-    controller = SimpleNamespace(active_jobs=0, desktop=SimpleNamespace(library=library), windows=[editor], qapp=app)
+    controller = SimpleNamespace(active_jobs=0, _desktop=SimpleNamespace(library=library), windows=[editor], qapp=app)
     DragShiftApp.request_quit(controller)
     assert not app.quit.called
     assert not editor.doc.is_closed and editor.dirty
@@ -330,7 +332,7 @@ def test_quit_saves_real_pdf_before_process_exit(qt, tmp_path, monkeypatch):
         assert editor.doc.is_closed
     app = Mock()
     app.quit.side_effect = assert_saved
-    controller = SimpleNamespace(active_jobs=0, desktop=SimpleNamespace(library=SimpleNamespace(confirm_leave=lambda: True)), windows=[editor], qapp=app)
+    controller = SimpleNamespace(active_jobs=0, _desktop=SimpleNamespace(library=SimpleNamespace(confirm_leave=lambda: True)), windows=[editor], qapp=app)
     DragShiftApp.request_quit(controller)
     app.quit.assert_called_once()
     assert source.read_bytes() == original

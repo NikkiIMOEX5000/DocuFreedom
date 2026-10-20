@@ -215,6 +215,7 @@ class FileList(QListWidget):
 
 class DesktopWindow(QMainWindow):
     """Window API used by the controller: set_files, record_result, set_busy, show_error."""
+    closed_to_tray = Signal()
 
     def __init__(self, controller):
         super().__init__()
@@ -300,7 +301,7 @@ class DesktopWindow(QMainWindow):
         shortcut_layout.addWidget(_label("БЫСТРОЕ МЕНЮ", "sidebarHeading"))
         self.shortcut_key = _label(self.controller.trigger_label(), "key")
         shortcut_layout.addWidget(self.shortcut_key)
-        shortcut_layout.addWidget(_label("Нажмите при перетаскивании файла в Finder.", "muted", True))
+        shortcut_layout.addWidget(_label("Нажмите при перетаскивании файла в Finder." if sys.platform == "darwin" else "Нажмите при перетаскивании файла в Проводнике.", "muted", True))
         layout.addWidget(shortcut)
         layout.addSpacing(15)
         layout.addWidget(_button("⚙   Настройки", callback=self.controller.open_settings))
@@ -308,7 +309,7 @@ class DesktopWindow(QMainWindow):
         if hasattr(self.controller, "show_donate"):
             layout.addWidget(_button("♡   Donate us", callback=self.controller.show_donate))
         layout.addSpacing(9)
-        layout.addWidget(_label(f"Версия {__version__}  ·  для Mac", "muted"))
+        layout.addWidget(_label(f"Версия {__version__}  ·  {'для Mac' if sys.platform == 'darwin' else 'для Windows'}", "muted"))
         return side
 
     def _scroll_page(self):
@@ -429,7 +430,7 @@ class DesktopWindow(QMainWindow):
         scroll, col = self._scroll_page()
         col.addWidget(_label("ТЕКУЩИЙ СЕАНС", "eyebrow"))
         col.addWidget(_label("Готовые результаты", "pageTitle"))
-        col.addWidget(_label("Откройте результат, покажите его в Finder или переместите копию в Корзину.", "muted", True))
+        col.addWidget(_label("Откройте результат, покажите его в папке или переместите копию в Корзину.", "muted", True))
         self.history_empty = QFrame()
         self.history_empty.setObjectName("card")
         empty_layout = QVBoxLayout(self.history_empty)
@@ -710,7 +711,7 @@ class DesktopWindow(QMainWindow):
         else:
             self._show_page(0)
 
-    def record_result(self, result: Result):
+    def record_result(self, result: Result, *, refresh_library=True):
         if not result.outs:
             self._show_banner(result.detail or "Операция завершена без создания файлов.")
             return
@@ -725,7 +726,8 @@ class DesktopWindow(QMainWindow):
         self.history_empty.hide()
         self.history_nav.setText(f"↺   Результаты  ·  {len(self._results)}")
         self._show_banner(f"Готово: {len(result.outs)}. Файлы доступны в разделе «Результаты».")
-        self.library.operation_finished(result)
+        if refresh_library:
+            self.library.operation_finished(result)
 
     def _result_card(self, result):
         card = QFrame()
@@ -752,7 +754,7 @@ class DesktopWindow(QMainWindow):
         layout.addWidget(path_label)
         action_row = QHBoxLayout()
         open_button = _button("Открыть", callback=lambda: self._open_result(output))
-        reveal_button = _button("В Finder", callback=lambda: self._reveal_result(output))
+        reveal_button = _button("В Finder" if sys.platform == "darwin" else "В папке", callback=lambda: self._reveal_result(output))
         trash_button = _button("Отменить результат", "danger")
         trash_button.setToolTip("Переместить созданные файлы в Корзину")
         action_row.addWidget(open_button)
@@ -796,7 +798,7 @@ class DesktopWindow(QMainWindow):
         if not path.is_file():
             self.show_error("Этот результат уже перемещён или удалён.")
         elif not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
-            self.show_error("Не удалось открыть файл. Найдите его через кнопку «В Finder».")
+            self.show_error("Не удалось открыть файл. Покажите его в папке и выберите программу.")
 
     def _reveal_result(self, path):
         if not path.exists():
@@ -822,7 +824,9 @@ class DesktopWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self.library.confirm_leave():
+            self.library.suspend_preview()
             event.accept()
+            self.closed_to_tray.emit()
         else:
             event.ignore()
 

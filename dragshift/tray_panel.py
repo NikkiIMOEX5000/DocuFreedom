@@ -17,6 +17,7 @@ from .toasts import reveal
 from .util import human_size
 
 SOURCE_URL = "https://github.com/NikkiIMOEX5000/DocuFreedom"
+DOWNLOAD_CACHE_SECONDS = 5.0
 
 STYLE = """
 QWidget { font-family: 'Helvetica Neue'; font-size: 13px; color: #202334; background: transparent; }
@@ -114,7 +115,9 @@ def scan_downloads(directory=None, max_entries=50000, time_budget=2.0):
                 except OSError:
                     continue
     except PermissionError:
-        return None, 'Нет доступа к «Загрузкам». Разрешите доступ в настройках macOS'
+        detail = ('Разрешите доступ в настройках macOS' if sys.platform == 'darwin'
+                  else 'Проверьте права доступа к папке')
+        return None, f'Нет доступа к «Загрузкам». {detail}'
     except OSError:
         return None, 'Не удалось прочитать папку «Загрузки»'
     return newest, message
@@ -134,27 +137,51 @@ class LatestFilesScanner(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.busy = False
+        self.scanning_downloads = False
         self._requested_result = None
         self._scanned_result = None
         self._thread = None
+        self._download_scanned_at = None
+        self._download_directory_signature = None
+        self._force_download = False
         self.completed.connect(self._finished, Qt.QueuedConnection)
 
-    def request(self, last_result):
+    def request(self, last_result, *, force_download=False):
         self._requested_result = str(last_result) if last_result else None
+        self._force_download = self._force_download or force_download
         if self.busy:
             return False
         self.busy = True
         self._scanned_result = self._requested_result
-        self._thread = threading.Thread(target=self._run, args=(self._scanned_result,),
+        scan_download = (self._force_download or self._download_scanned_at is None
+                         or time.monotonic() - self._download_scanned_at >= DOWNLOAD_CACHE_SECONDS)
+        self.scanning_downloads = scan_download
+        self._force_download = False
+        self._thread = threading.Thread(target=self._run, args=(self._scanned_result, scan_download),
                                         name='DocuFreedom recent files', daemon=True)
         self._thread.start()
         return True
 
-    def _run(self, last_result):
+    def _run(self, last_result, scan_download):
         try:
             self.updated.emit('result', file_info(last_result), '')
-            snapshot, error = scan_downloads()
-            self.updated.emit('download', snapshot, error)
+            # A new/renamed/deleted download invalidates the short cache at once.
+            # This inexpensive metadata check also stays off the GUI thread.
+            try:
+                folder = downloads_folder()
+                details = folder.stat()
+                signature = (str(folder), details.st_dev, details.st_ino,
+                             details.st_mtime_ns, details.st_size)
+            except OSError:
+                signature = None
+            scan_download = (scan_download or signature is None
+                             or signature != self._download_directory_signature)
+            if scan_download:
+                self.scanning_downloads = True
+                snapshot, error = scan_downloads()
+                self._download_scanned_at = time.monotonic()
+                self._download_directory_signature = signature
+                self.updated.emit('download', snapshot, error)
         except RuntimeError:
             pass  # Qt owner may have been destroyed while a blocked call finished.
         except Exception:
@@ -171,7 +198,8 @@ class LatestFilesScanner(QObject):
     @Slot()
     def _finished(self):
         self.busy = False
-        if self._requested_result != self._scanned_result:
+        self.scanning_downloads = False
+        if self._requested_result != self._scanned_result or self._force_download:
             self.request(self._requested_result)
 
 
@@ -256,7 +284,8 @@ class FileCard(QFrame):
         row = QHBoxLayout()
         self.open_btn = QPushButton('Открыть')
         self.open_btn.clicked.connect(self.open_file)
-        self.finder_btn = QPushButton('Показать в Finder ↗')
+        self.finder_btn = QPushButton('Показать в Finder ↗' if sys.platform == 'darwin'
+                                     else 'Показать в папке ↗')
         self.finder_btn.clicked.connect(self.reveal_file)
         row.addWidget(self.open_btn)
         row.addWidget(self.finder_btn)
@@ -387,7 +416,7 @@ class AboutWindow(FrostedDialog):
         publisher.setObjectName('caption')
         publisher.setAlignment(Qt.AlignCenter)
         layout.addWidget(publisher)
-        description = QLabel('Файлы, просмотр документов и инструменты PDF в одном приложении для Mac. Обработка выполняется на вашем компьютере.')
+        description = QLabel('Файлы, просмотр документов и инструменты PDF в одном приложении для Mac и Windows. Обработка выполняется на вашем компьютере.')
         description.setWordWrap(True)
         layout.addWidget(description)
         self.source_button = QPushButton('Исходный код на GitHub ↗')
@@ -451,6 +480,7 @@ class TrayPanel(FrostedDialog):
         layout.setSpacing(13)
         row = QHBoxLayout()
         self.logo = QLabel()
+        self._icon_style = controller.settings.get('icon_style')
         self.logo.setPixmap(app_icon().pixmap(44, 44))
         row.addWidget(self.logo)
         title = QVBoxLayout()
@@ -492,7 +522,7 @@ class TrayPanel(FrostedDialog):
             choice.setCheckable(True)
             choice.setAutoDefault(False)
             choice.setDefault(False)
-            choice.setToolTip({"system": "Следовать теме macOS", "light": "Светлое оформление", "dark": "Тёмное оформление"}[mode])
+            choice.setToolTip({"system": "Следовать теме системы", "light": "Светлое оформление", "dark": "Тёмное оформление"}[mode])
             self.theme_group.addButton(choice)
             self.theme_buttons[mode] = choice
             choice.clicked.connect(lambda checked=False, selected=mode: controller.set_theme(selected))
@@ -515,14 +545,22 @@ class TrayPanel(FrostedDialog):
         self.hide()
         QTimer.singleShot(0, callback)
 
-    def refresh(self):
-        self.logo.setPixmap(app_icon().pixmap(44, 44))
+    def refresh(self, *, scan_files=True, force_download=False):
+        # Theme/status changes need no disk access or another icon decode.
+        # Downloads are scanned only on demand, with a short cache to coalesce
+        # repeated menu opens and batches of completed conversions.
+        icon_style = self.controller.settings.get('icon_style')
+        if icon_style != self._icon_style:
+            self._icon_style = icon_style
+            self.logo.setPixmap(app_icon().pixmap(44, 44))
         last_result = self.controller.settings.get('last_result')
         result_path = Path(last_result) if last_result else None
         if self.result.path != result_path:
             self.result.set_snapshot(FileInfo(result_path, False, 'Проверяем доступ к файлу…'))
-        if self._recent_scanner.request(last_result) and self.download.path is None:
-            self.download.info.setText('Проверяем «Загрузки»… Разрешите доступ, если macOS спросит')
+        if (scan_files and self._recent_scanner.request(last_result, force_download=force_download)
+                and self._recent_scanner.scanning_downloads and self.download.path is None):
+            self.download.info.setText('Проверяем «Загрузки»…' + (
+                ' Разрешите доступ, если macOS спросит' if sys.platform == 'darwin' else ''))
         self.status.setText('Обрабатываем файлы…' if self.controller.active_jobs else 'от dna.apps · документы под рукой')
         self._sync_theme_buttons()
 

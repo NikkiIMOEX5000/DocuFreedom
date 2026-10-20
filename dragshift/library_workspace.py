@@ -127,6 +127,7 @@ class LibraryWorkspace(QWidget):
         self._pdf = None
         self._password = ""
         self._processing = False
+        self._preview_suspended = False
         self._selecting = False
         self._entries = []
         self._text_editing = False
@@ -262,7 +263,7 @@ class LibraryWorkspace(QWidget):
         action_row.addWidget(self.convert_button)
         preview_col.addLayout(action_row)
         minor_row = QHBoxLayout()
-        self.reveal_button = _button("Показать в Finder", self.reveal_current, "quiet")
+        self.reveal_button = _button("Показать в Finder" if sys.platform == "darwin" else "Показать в папке", self.reveal_current, "quiet")
         minor_row.addWidget(self.reveal_button)
         minor_row.addStretch()
         self.external_button = _button("Открыть в другой программе ↗", self.open_external, "quiet")
@@ -471,8 +472,26 @@ class LibraryWorkspace(QWidget):
             self._pdf.close()
             self._pdf = None
 
+    def suspend_preview(self):
+        """Release decoded pages while hidden; keep selection and unsaved text."""
+        self._preview_suspended = True
+        self.preview_timer.stop()
+        self._close_pdf()
+        self.picture.clear()
+
+    def hideEvent(self, event):
+        self.suspend_preview()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        suspended = self._preview_suspended
+        self._preview_suspended = False
+        if suspended and self.current_path and not self._text_editing:
+            self.preview_timer.start()
+
     def render_preview(self):
-        if self._processing or not self.current_path or not self.current_path.is_file() or self._text_editing:
+        if self._preview_suspended or self._processing or not self.current_path or not self.current_path.is_file() or self._text_editing:
             return
         path = self.current_path
         try:
@@ -533,7 +552,7 @@ class LibraryWorkspace(QWidget):
             self._refresh_buttons()
 
     def _render_pdf(self, *_):
-        if self._processing or self._pdf is None:
+        if self._preview_suspended or self._processing or self._pdf is None:
             return
         page = self._pdf[self.page.value() - 1]
         width, height = page.rect.width, page.rect.height
@@ -713,16 +732,18 @@ class LibraryWorkspace(QWidget):
             return
         if sys.platform == "darwin":
             subprocess.Popen(["open", "-R", str(self.current_path)])
+        elif sys.platform == "win32":
+            subprocess.Popen(["explorer.exe", "/select,", os.path.normpath(str(self.current_path))])
         else:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.current_path.parent)))
 
     def open_external(self):
         if self.current_path and not QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.current_path))):
-            self.show_message("Не удалось открыть документ. Используйте Finder.")
+            self.show_message("Не удалось открыть документ. Нажмите «Показать в папке» и выберите программу.")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, "preview_timer") and not self._processing and self._preview_kind in ("pdf", "image"):
+        if hasattr(self, "preview_timer") and not self._preview_suspended and not self._processing and self._preview_kind in ("pdf", "image"):
             self.preview_timer.start()
 
     def dragEnterEvent(self, event):

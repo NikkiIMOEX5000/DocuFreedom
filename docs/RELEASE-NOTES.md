@@ -1,19 +1,18 @@
-# DocuFreedom 4.1.0
+# DocuFreedom 4.2.0
 
-Office-to-PDF conversion now uses a bundled LibreOffice renderer. Previously, DOCX files were rebuilt as simplified HTML on a fixed page size, which could change the document's appearance and pagination. The new path reads the source document's styles, page sizes, margins, sections, tables, images, headers, and footers when exporting to PDF. XLSX, PPTX, and ODT use the same local Office engine.
+A quieter tray companion, a calmer glass menu, and a native Windows package.
 
-- All Office-to-PDF entry points use the same renderer, including **Create PDF and edit** in the folder browser.
-- The renderer is included in the macOS application. No separate Office installation or online service is required.
-- The folder preview is explicitly labeled as extracted text. Open the generated PDF to review the formatted pages.
-- Source documents remain unchanged; conversion saves a separate PDF copy.
-- Fixed an extra 9-point offset that LibreOffice could add to inline DOCX pictures with omitted spacing attributes.
-- Office images use lossless PDF export without downsampling.
-- The menu-bar companion now uses a minimal dog outline with small eyes and a nose, adapting automatically to light and dark menu bars.
+- **Less background work:** on macOS, mouse events wake the Shift-drag watcher only while a button is held. The idle input-polling timer stops completely. Windows and the fallback path use a slower idle check and switch to the responsive drag interval when needed.
+- **Load tools when needed:** the main workspace and document-processing libraries no longer load merely to show the tray icon. Downloads scanning is cached and runs only when the panel needs it.
+- **Bounded previews:** hidden windows release rendered previews. The PDF editor keeps at most 16 nearby page thumbnails; up to 12 undo checkpoints use private temporary files instead of retaining full document copies in RAM. Unsaved text and encrypted PDF undo remain supported.
+- **Calm glass:** the Shift-drag menu has neutral translucent surfaces and native macOS material, with no colored gradients, desktop screenshots, or NumPy refraction worker. Hover animation stops after settling.
+- **Windows x64:** per-user installer and portable ZIP, bundled LibreOffice and Ghostscript, Windows OCR, region capture, scanner integration, Explorer reveal, and optional startup/context-menu integration.
+- **Existing tools retained:** editing, pinned actions, folder previews, conversions, signatures, standards export, and theme switching remain available. Office-to-PDF still uses the local LibreOffice renderer introduced in 4.1.
 
-LibreOffice and Microsoft Office can render complex elements differently. Missing fonts can also change line wrapping or pagination; install the fonts used in the original document for the closest result. This release does not claim pixel-identical rendering of every Office document. PDF-to-Word remains a separate reconstruction tool with its own layout limitations.
+**Downloads:** choose the macOS Apple Silicon DMG, Windows x64 setup EXE, or Windows x64 portable ZIP. The macOS build requires macOS 15+ and is ad-hoc signed, not notarized. Windows packages are unsigned. Extract the entire portable folder before launching DocuFreedom.exe. Windows OCR uses installed recognition languages; scanning and printing require compatible hardware.
 
-**Requirements:** Apple Silicon, macOS 15 or later. Replace the existing app in Applications with the new copy from the DMG. The build is ad-hoc signed and not Apple notarized.
+Document processing can still use CPU and memory while a conversion or editor is active. Missing fonts and differences between LibreOffice and Microsoft Office can change complex Office layouts; install the source document's fonts for the closest result.
 
-Validation: **272 automated tests** and **39 source-runtime smoke checks** and **41 frozen-app smoke checks** passed, including real Office layout regressions. Signature, packaging and validation details are recorded in the [validation report](https://github.com/NikkiIMOEX5000/DocuFreedom/blob/main/docs/TEST-REPORT.md).
+Completed checks and platform limits are recorded in the [validation report](https://github.com/NikkiIMOEX5000/DocuFreedom/blob/main/docs/TEST-REPORT.md).
 
-A special thank-you to [llamaboi55](https://github.com/llamaboi55) for [DragShift](https://github.com/llamaboi55/DragShift), whose project inspired DocuFreedom after its creator discovered it through Instagram.
+A special thank-you to [llamaboi55](https://github.com/llamaboi55) for [DragShift](https://github.com/llamaboi55/DragShift). Its Shift-drag workflow inspired DocuFreedom after its creator found the project through Instagram.

@@ -1,0 +1,141 @@
+name: Windows build and tests
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional existing release tag to attach verified Windows assets (must point to this build commit)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements-windows.lock
+      - name: Check PowerShell syntax
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('build-windows.ps1', 'scripts/prepare-windows-runtimes.ps1', 'dragshift/assets/windows-capture.ps1')) {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $path), [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          }
+      - name: Build, test and package Windows installer and portable archive
+        run: ./build-windows.ps1
+      - name: Smoke-test per-user installation and uninstall
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (& .venv/Scripts/python.exe -c 'from dragshift import __version__; print(__version__)').Trim()
+          $installer = Join-Path $PWD "dist/DocuFreedom-$version-windows-x64-setup.exe"
+          $target = Join-Path $env:RUNNER_TEMP 'DocuFreedom install test'
+          $install = Start-Process $installer -Wait -PassThru -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS=`"`" /DIR=`"$target`""
+          if ($install.ExitCode -ne 0) { throw "Install failed: $($install.ExitCode)" }
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $smoke = Start-Process "$target/DocuFreedom.exe" -ArgumentList '--selftest' -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) { throw 'Installed application self-test failed' }
+          $uninstall = Start-Process "$target/unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocuFreedom-windows-diagnostics
+          path: |
+            vendor/windows/*.log
+            ~/AppData/Local/DocuFreedom/log.txt
+            ~/AppData/Local/DocuFreedom/logs/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DocuFreedom-windows-x64
+          path: |
+            dist/DocuFreedom-*-windows-x64-setup.exe
+            dist/DocuFreedom-*-windows-x64-portable.zip
+            dist/SHA256SUMS-windows.txt
+            dist/ghostscript-10.08.0.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  attach-release:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    needs: windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: DocuFreedom-windows-x64
+          path: release-assets
+      - name: Verify release target and attach missing Windows assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          BUILT_SHA: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid release tag'; exit 1; }
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$BUILT_SHA"
+          version=$(python -c 'from dragshift import __version__; print(__version__)')
+          test "$RELEASE_TAG" = "v$version"
+          # An existing release is deliberate authorization to publish assets.
+          # Never create a release or replace an already published binary here.
+          gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > release.json
+          cd release-assets
+          sha256sum --check SHA256SUMS-windows.txt
+          python - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          tag = os.environ['RELEASE_TAG']
+          version = tag[1:]
+          expected = [f'DocuFreedom-{version}-windows-x64-setup.exe',
+                      f'DocuFreedom-{version}-windows-x64-portable.zip',
+                      'SHA256SUMS-windows.txt', 'ghostscript-10.08.0.tar.xz']
+          assets = {asset['name']: asset for asset in json.loads(pathlib.Path('../release.json').read_text())['assets']}
+          missing = []
+          for name in expected:
+              path = pathlib.Path(name)
+              if not path.is_file():
+                  raise SystemExit(f'Missing verified artifact: {name}')
+              if name in assets:
+                  # Compare GitHub's stored digest without downloading large
+                  # already-published files. Unknown digest means fail closed.
+                  with path.open('rb') as source:
+                      digest = 'sha256:' + hashlib.file_digest(source, 'sha256').hexdigest()
+                  if assets[name].get('digest') != digest:
+                      raise SystemExit(f'Published asset differs or has no digest: {name}; retained unchanged')
+                  print(f'Already published with matching digest: {name}')
+                  continue
+              missing.append(path)
+          for path in missing:
+              subprocess.run(['gh', 'release', 'upload', tag, str(path)], check=True)
+          PY

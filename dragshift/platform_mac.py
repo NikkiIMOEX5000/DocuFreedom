@@ -81,6 +81,54 @@ def native_app_available() -> bool:
     return bool(OK and QGuiApplication.instance() and QGuiApplication.platformName() == "cocoa")
 
 
+def install_shaped_material(widget, mask, light: bool):
+    """A native behind-window glass material clipped to the radial menu's alpha mask.
+
+    AppKit owns the blur and accessibility transparency settings. Unlike the old
+    refraction renderer this does not read the screen or retain desktop snapshots.
+    The caller retains the returned view and removes it when the popup hides.
+    """
+    if not native_app_available():
+        return None
+    effect = None
+    try:
+        import objc
+        from Foundation import NSData
+        view = objc.objc_object(c_void_p=int(widget.winId()))
+        parent = view.superview()
+        if parent is None:
+            return None
+        data = QByteArray()
+        buffer = QBuffer(data)
+        buffer.open(QIODevice.WriteOnly)
+        mask.save(buffer, "PNG")
+        buffer.close()
+        raw = bytes(data)
+        image = AppKit.NSImage.alloc().initWithData_(NSData.dataWithBytes_length_(raw, len(raw)))
+        if image is None:
+            return None
+        image.setSize_(AppKit.NSMakeSize(widget.width(), widget.height()))
+        effect = AppKit.NSVisualEffectView.alloc().initWithFrame_(view.frame())
+        effect.setAutoresizingMask_(AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable)
+        effect.setMaterial_(AppKit.NSVisualEffectMaterialPopover)
+        effect.setBlendingMode_(AppKit.NSVisualEffectBlendingModeBehindWindow)
+        effect.setState_(AppKit.NSVisualEffectStateActive)
+        effect.setAppearance_(AppKit.NSAppearance.appearanceNamed_(
+            AppKit.NSAppearanceNameAqua if light else AppKit.NSAppearanceNameDarkAqua))
+        effect.setMaskImage_(image)
+        # A native child would cover Qt's backing layer (and the action labels).
+        parent.addSubview_positioned_relativeTo_(effect, AppKit.NSWindowBelow, view)
+        window = view.window()
+        if window is not None:
+            window.setOpaque_(False)
+            window.setBackgroundColor_(AppKit.NSColor.clearColor())
+        return effect
+    except Exception:
+        if effect is not None:
+            effect.removeFromSuperview()
+        return None
+
+
 def cocoa_rect_to_qt(rect, desktop_top: float) -> QRect:
     """Cocoa desktop coordinates have their vertical origin at the main display bottom."""
     return QRect(round(rect.origin.x), round(desktop_top - rect.origin.y - rect.size.height),

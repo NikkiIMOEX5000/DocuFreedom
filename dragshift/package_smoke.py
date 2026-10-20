@@ -110,18 +110,20 @@ def run() -> dict:
                 evidence = pdf_standards.inspect_standard_pdf(result)
                 record(f"Ghostscript {kind} conversion", evidence["all_fonts_embedded"] and bool(evidence["output_intents"]) and readable_pdf(result))
 
-            if sys.platform == "darwin" and getattr(sys, "frozen", False):
+            if sys.platform in {"darwin", "win32"} and getattr(sys, "frozen", False):
                 import subprocess
                 from .office_renderer import find_libreoffice, _renderer_environment
+                from .runtime_process import external_run
                 engine = find_libreoffice()
-                bundled_runtime = Path(sys.executable).resolve().parent.parent / "Resources" / "libreoffice"
+                bundled_runtime = (Path(sys._MEIPASS) / "libreoffice" if sys.platform == "win32" else
+                                   Path(sys.executable).resolve().parent.parent / "Resources" / "libreoffice")
                 record("LibreOffice resolves inside app bundle", engine is not None
                        and engine.is_relative_to(bundled_runtime.resolve()))
-                version = subprocess.run(
+                version = external_run(
                     [str(engine), "-env:UserInstallation=" + (root / "version-profile").as_uri(),
                      "--headless", "--version"],
                     cwd=root, env=_renderer_environment(), stdin=subprocess.DEVNULL,
-                    capture_output=True, text=True, timeout=30,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30,
                 )
                 record("Bundled LibreOffice executable launches", version.returncode == 0
                        and "LibreOffice" in version.stdout)
@@ -233,6 +235,15 @@ def run() -> dict:
                 record("Real Apple Vision Russian/English OCR", "DNA.apps" in recognized and "Проверка" in recognized)
                 searchable = native.ocr_document(ocr_path)[0]
                 record("Searchable OCR PDF", readable_pdf(searchable, "Проверка"))
+            elif sys.platform == "win32":
+                import winrt.windows.foundation
+                import winrt.windows.foundation.collections
+                import winrt.windows.globalization
+                import winrt.windows.graphics.imaging
+                import winrt.windows.media.ocr
+                import winrt.windows.storage
+                import winrt.windows.storage.streams
+                record("Windows OCR projections packaged (recognition needs Windows language packs)")
 
             from PySide6.QtCore import QPointF, QCoreApplication, QEvent
             from PySide6.QtWidgets import QApplication
@@ -266,6 +277,10 @@ def run() -> dict:
                 workspace.toggle_favorite("merge")
                 record("Pinned tools persistence", "merge" in controller.settings.get("favorite_tools", []))
                 workspace.toggle_favorite("merge")
+                # Hidden workspaces deliberately release their raster previews.
+                # Exercise the visible UI path before asserting decoded pixels.
+                desktop.show()
+                app.processEvents()
                 desktop.preview_file(source)
                 app.processEvents()
                 # macOS exposes /var as an alias of /private/var. The browser

@@ -1,14 +1,14 @@
 <div align="center">
   <img src="dragshift/assets/branding/docufreedom.png" width="128" alt="DocuFreedom dog icon">
   <h1>DocuFreedom</h1>
-  <p><strong>Your documents. Your Mac. Your freedom.</strong><br>Published by <strong>dna.apps</strong></p>
+  <p><strong>Your documents. Your computer. Your freedom.</strong><br>Published by <strong>dna.apps</strong></p>
   <p>A local document workspace with a PDF editor, folder previews, pinned tools, OCR, and a menu-bar companion.</p>
-  <p><a href="https://github.com/NikkiIMOEX5000/DocuFreedom/releases">Download for macOS</a> · <a href="docs/FEATURES-RU.md">Feature guide (Russian)</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
+  <p><a href="https://github.com/NikkiIMOEX5000/DocuFreedom/releases">macOS and Windows releases</a> · <a href="docs/FEATURES-RU.md">Feature guide (Russian)</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 </div>
 
 ## Meet DocuFreedom
 
-Open a folder, preview a file, and start editing. Keep your most-used PDF tools pinned near the top. Switch between light, dark, and system appearance. Close the main window and keep working from a small companion in the macOS menu bar.
+Open a folder, preview a file, and start editing. Keep your most-used PDF tools pinned near the top. Switch between light, dark, and system appearance. Close the main window and keep working from a small companion in the macOS menu bar or Windows notification area.
 
 The mascot is a simplified portrait of the creator's dog. The interface pairs cobalt accents with warm light surfaces or a deep charcoal dark theme. **dna.apps is the publisher; DocuFreedom is the application.**
 
@@ -34,15 +34,23 @@ The mascot is a simplified portrait of the creator's dog. The interface pairs co
 - **Pin your tools:** star frequent actions and keep them at the front of the PDF tool catalog.
 - **Transform documents:** merge, split, extract, duplicate, crop, resize, watermark, number pages, overlay, create booklets, and arrange several pages on one sheet.
 - **Protect and inspect:** AES-256 passwords, metadata, attachments, visual comparison, structural repair, local P12/PFX signing, and offline signature integrity reports.
-- **Convert and recognize:** PDF/image/text conversions, DOCX/XLSX/PPTX/ODT-to-PDF export with bundled LibreOffice, PDF-to-PowerPoint/Excel/SVG/HTML/TIFF, and on-device English/Russian OCR with Apple Vision.
-- **Prepare output:** compression, real web linearization, PDF/A-2b with local validation, PDF/X-3 with ICC profiles, system printing, screen-region capture, and Image Capture scanner integration.
-- **Stay close to your files:** the menu-bar panel shows the latest result and latest file in Downloads (temporary download files are excluded), with buttons to open them or reveal their exact location in Finder.
+- **Convert and recognize:** PDF/image/text conversions, DOCX/XLSX/PPTX/ODT-to-PDF export with bundled LibreOffice, PDF-to-PowerPoint/Excel/SVG/HTML/TIFF, and local OCR using Apple Vision on macOS or Windows OCR with installed recognition language packs.
+- **Prepare output:** compression, real web linearization, PDF/A-2b with local validation, PDF/X-3 with ICC profiles, system printing, screen-region capture, and the system scanner application.
+- **Stay close to your files:** the tray panel shows the latest result and latest file in Downloads (temporary download files are excluded), with buttons to open them or reveal their exact location in Finder or Explorer.
 
 Processing runs locally. The webpage-to-PDF tool fetches only the URL you explicitly enter. There is no application account, subscription, telemetry, or automatic upload of your documents.
 
+## Lighter tray mode in 4.2
+
+The full workspace and document engines load when needed. The macOS Shift-drag watcher uses mouse-button notifications and performs no recurring input polls while idle. During a drag it checks at 15 ms; Windows and the macOS fallback use a 100 ms idle interval. Disabling the shortcut stops its polling entirely.
+
+PDF thumbnails are generated around the visible pages, with at most 16 decoded thumbnails retained. Up to 12 undo checkpoints are stored in a temporary directory on disk, preserving source encryption, instead of retaining full document copies in RAM. Hidden previews release decoded pages and resume when reopened; unsaved edits remain available. Recent-download scans run on demand and coalesce repeated requests.
+
+The Shift-drag menu uses quiet neutral glass: a native macOS material and a translucent fallback on Windows. It has no rainbow gradient, desktop screenshot capture, or continuously running animation while settled.
+
 ## Install
 
-**Apple Silicon · macOS 15 or later**
+### macOS — Apple Silicon, macOS 15 or later
 
 1. Download the latest `.dmg` from [Releases](https://github.com/NikkiIMOEX5000/DocuFreedom/releases).
 2. Open it and drag **DocuFreedom.app** into **Applications**.
@@ -54,9 +62,19 @@ The current build is **ad-hoc signed, not Apple notarized**. If macOS blocks a d
 
 On a crowded menu bar, macOS may place third-party icons behind the camera notch. Relaunching from Spotlight opens the workspace even when the icon is not visible. You can also rearrange menu-bar items with Command-drag.
 
+### Windows — Windows 10/11 x64
+
+Choose `DocuFreedom-4.2.0-windows-x64-setup.exe` for a per-user installation, or extract **all** of `DocuFreedom-4.2.0-windows-x64-portable.zip` and run `DocuFreedom/DocuFreedom.exe`. Windows 10 version 2004 (build 19041) or later is required. Keep the portable executable beside its `_internal` folder. Python and separate Office/Ghostscript installations are not required.
+
+The installer offers optional startup, desktop-shortcut and file-context-menu integration. Close the main window to keep the tray companion running; use **Quit** to exit. Windows may place its icon in the notification-area overflow.
+
+Windows packages are **unsigned** and may show an unknown-publisher or SmartScreen prompt. Check the release source and SHA-256 before choosing to run a downloaded package. Windows packaging is new in 4.2; consult the [Windows build workflow](https://github.com/NikkiIMOEX5000/DocuFreedom/actions/workflows/windows.yml) and [test report](docs/TEST-REPORT.md) for confirmed native build and installation results.
+
+Windows OCR uses the recognition languages installed under **Settings → Time & language → Language & region**. Scanner integration opens the Windows scanner wizard; a compatible device and driver are required. Printing to a file uses **Microsoft Print to PDF**, when enabled in Windows, then the saved PDF can be added to DocuFreedom. No printer driver is installed by the app.
+
 ## Accuracy and scope
 
-DocuFreedom is a standalone macOS application, not an official PDF24 or Drinkit product.
+DocuFreedom is an independent application for macOS and Windows. It is not an official PDF24 or Drinkit product.
 
 - Office-to-PDF export uses bundled LibreOffice to render document styles, page sizes, margins, sections, tables, headers, and footers. Missing fonts and differences between LibreOffice and Microsoft Office can still change line breaks or complex elements. For the closest result, install the fonts used by the source document.
 - The Office preview in the folder browser shows extracted text, not page layout. Use **Create PDF and edit** to see the converted pages.
@@ -85,7 +103,18 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 QT_QPA_PLATFORM=offscreen .venv/bin/python run.py --selftest
 ```
 
-Output: `dist/DocuFreedom.app` and `dist/DocuFreedom-4.1.0-mac-arm64.dmg`.
+Output: `dist/DocuFreedom.app` and `dist/DocuFreedom-4.2.0-mac-arm64.dmg`.
+
+On Windows, use **Python 3.14 x64**, **PowerShell 7**, **Inno Setup 6**, and **7-Zip**:
+
+```powershell
+git clone https://github.com/NikkiIMOEX5000/DocuFreedom.git
+cd DocuFreedom
+./build-windows.ps1
+```
+
+The Windows script installs `requirements-windows.lock`, prepares checksum-verified local engines, runs tests and the frozen self-test, and creates `dist/DocuFreedom-4.2.0-windows-x64-setup.exe`, `dist/DocuFreedom-4.2.0-windows-x64-portable.zip`, and `dist/SHA256SUMS-windows.txt`. Native Windows CI also exercises per-user installation and uninstall. See the [runtime notices](scripts/windows-runtime-notices.md) for engine sources and checksums.
+
 The internal Python package remains named `dragshift` to keep the upstream code lineage clear. Existing DragShift settings are read for migration; new settings belong to DocuFreedom.
 
 ## A special thank-you

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
 from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
 
 import pymupdf as fitz
 import pytest
@@ -67,7 +68,7 @@ def test_copy_profile_output_atomicity_and_cleanup(source, fake_engine, monkeypa
         assert settings["ReduceImageResolution"]["value"] == "false"
         assert settings["SinglePageSheets"]["value"] == "false"
         profile_uri = next(value.split("=", 1)[1] for value in arguments if value.startswith("-env:UserInstallation="))
-        profile = Path(unquote(urlparse(profile_uri).path))
+        profile = Path(url2pathname(urlparse(profile_uri).path))
         assert profile.is_relative_to(workspace)
         config = (profile / "user" / "registrymodifications.xcu").read_text()
         assert "DisableMacrosExecution" in config and "BlockUntrustedRefererLinks" in config
@@ -228,12 +229,14 @@ def test_explicit_override_is_strict_and_supports_spaces(tmp_path, monkeypatch):
     engine.chmod(0o755)
     monkeypatch.setenv("DOCUFREEDOM_SOFFICE", str(engine))
     assert renderer.find_libreoffice() == engine.resolve()
-    engine.chmod(0o644)
+    # Windows does not implement POSIX executable permission bits.
+    engine.unlink()
     monkeypatch.setattr(renderer, "_runtime_candidates", lambda: pytest.fail("Override must not silently fall back"))
     assert renderer.find_libreoffice() is None
 
 
 def test_frozen_resources_runtime_precedes_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(renderer.sys, "platform", "darwin")
     contents = tmp_path / "DocuFreedom.app" / "Contents"
     engine = contents / "Resources" / "libreoffice" / "LibreOffice.app" / "Contents" / "MacOS" / "soffice"
     engine.parent.mkdir(parents=True)

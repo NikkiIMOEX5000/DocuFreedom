@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from pathlib import Path
@@ -263,7 +264,10 @@ def test_each_catalog_card_has_a_working_dispatch_path(qapp, document, tmp_path,
         qapp.processEvents()
         controller.windows[0].close()
     elif spec.key in ("scanner", "pdf_service"):
-        assert invoked[0][0] == spec.key
+        if spec.key == "pdf_service" and sys.platform == "win32":
+            assert not invoked  # Windows uses Microsoft Print to PDF guidance.
+        else:
+            assert invoked[0][0] == spec.key
     else:
         assert len(workspace.dialogs) == 1, workspace.error.text()
         dialog = workspace.dialogs[0]

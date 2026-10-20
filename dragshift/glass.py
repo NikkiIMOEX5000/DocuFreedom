@@ -52,6 +52,27 @@ def blur_pixmap(pm: QPixmap, radius: int = 18) -> QPixmap:
     return small.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
 
 
+def paint_neutral_glass(p: QPainter, path: QPainterPath, light: bool,
+                        *, native: bool = False, hover: float = 0.0) -> None:
+    """Quiet glass chrome over a system material, or a legible translucent fallback.
+
+    Flat neutral tints deliberately avoid the old rainbow gradients. The compositor
+    supplies the blur on macOS; no screenshot or per-pixel rendering is needed.
+    """
+    p.save()
+    base = QColor(250, 250, 252) if light else QColor(31, 33, 38)
+    base.setAlpha(30 if native else 242)
+    p.fillPath(path, base)
+    if hover > 0.001:
+        p.fillPath(path, QColor(255, 255, 255, round((90 if light else 32) * hover)))
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(QColor(0, 0, 0, 18 if light else 45), 2.2))
+    p.drawPath(path)
+    p.setPen(QPen(QColor(255, 255, 255, 170 if light else 64), 0.9))
+    p.drawPath(path)
+    p.restore()
+
+
 def paint_glass(p: QPainter, path: QPainterPath, backdrop: QPixmap | None = None,
                 backdrop_offset: QPointF = QPointF(0, 0), tint: QColor | None = None,
                 rim: bool = True, rainbow_alpha: int = 170, highlight: float = 1.0) -> None:

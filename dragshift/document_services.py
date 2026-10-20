@@ -50,6 +50,9 @@ class OCRLine:
 
 def recognize_image(image: Image.Image, languages=("ru-RU", "en-US")) -> list[OCRLine]:
     """Recognize one image locally, retaining each line's placement."""
+    if sys.platform == "win32":
+        from .windows_services import recognize
+        return recognize(image, languages)
     if sys.platform != "darwin":
         raise UserError("Распознавание Apple Vision доступно только в macOS.")
     try:
@@ -152,7 +155,8 @@ def ocr_document(src: str | Path, *, output: str = "pdf", languages=("ru-RU", "e
         if not total_lines:
             raise UserError("Текст не найден. Попробуйте более чёткое изображение или другой язык OCR.")
         if output == "pdf":
-            document.set_metadata({"title": src.stem, "producer": "DocuFreedom • Apple Vision OCR"})
+            engine_name = "Windows OCR" if sys.platform == "win32" else "Apple Vision OCR"
+            document.set_metadata({"title": src.stem, "producer": "DocuFreedom • " + engine_name})
             document.subset_fonts()
             atomic_save(lambda target: document.save(target, garbage=4, deflate=True), destination)
         else:
@@ -286,19 +290,24 @@ def office_to_pdf(src: str | Path) -> list[Path]:
 
 def capture_screen_to_pdf(output_dir: str | Path) -> list[Path]:
     """Run native interactive capture only following the user's explicit action."""
-    if sys.platform != "darwin":
-        raise UserError("Снимок экрана через системный интерфейс доступен только в macOS.")
+    if sys.platform not in {"darwin", "win32"}:
+        raise UserError("Снимок экрана доступен в macOS и Windows.")
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
     destination = unique_path(directory / f"Снимок экрана {dt.datetime.now():%Y-%m-%d %H.%M.%S}.pdf")
     with tempfile.TemporaryDirectory(prefix="dna-screen-") as temp:
         screenshot = Path(temp) / "capture.png"
-        result = subprocess.run(["/usr/sbin/screencapture", "-i", "-x", "-t", "png", str(screenshot)],
-                                capture_output=True, text=True, timeout=300)
-        if not screenshot.exists():
-            if "permission" in result.stderr.lower() or "could not create image" in result.stderr.lower():
-                raise UserError("Разрешите запись экрана для DocuFreedom в настройках macOS → Конфиденциальность и безопасность.")
-            return []  # Escape or native capture cancellation.
+        if sys.platform == "win32":
+            from .windows_services import capture_to_image
+            if not capture_to_image(screenshot):
+                return []
+        else:
+            result = subprocess.run(["/usr/sbin/screencapture", "-i", "-x", "-t", "png", str(screenshot)],
+                                    capture_output=True, text=True, timeout=300)
+            if not screenshot.exists():
+                if "permission" in result.stderr.lower() or "could not create image" in result.stderr.lower():
+                    raise UserError("Разрешите запись экрана для DocuFreedom в настройках macOS → Конфиденциальность и безопасность.")
+                return []  # Escape or native capture cancellation.
         with Image.open(screenshot) as image:
             rgb = image.convert("RGB")
             atomic_save(lambda target: rgb.save(target, "PDF", resolution=144), destination)
@@ -307,6 +316,10 @@ def capture_screen_to_pdf(output_dir: str | Path) -> list[Path]:
 
 def open_scanner() -> None:
     """Open macOS Image Capture. Scanning itself is handled by Apple's device UI."""
+    if sys.platform == "win32":
+        from .windows_services import open_scanner as windows_scanner
+        windows_scanner()
+        return
     if sys.platform != "darwin":
         raise UserError("Импорт со сканера доступен через «Захват изображений» в macOS.")
     subprocess.run(["/usr/bin/open", "-b", "com.apple.Image_Capture"], check=True, capture_output=True)

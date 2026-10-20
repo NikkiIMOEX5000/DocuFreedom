@@ -14,7 +14,7 @@ from PySide6.QtGui import (QAction, QColor, QCursor, QDesktopServices, QGuiAppli
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon, QWidget
 
-from . import __version__, convert, glass, imaging, report, tools
+from . import __version__, glass, report
 from .branding import APP_NAME, app_icon, tray_icon
 from .radial import Item, RadialMenu
 from .settings import Settings, SettingsWindow, WelcomeWindow, TRIGGERS
@@ -103,6 +103,9 @@ class DragShiftApp(QObject):
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(1)
         self.active_jobs = 0
+        self._desktop = None
+        self._tray_panel = None
+        self._recent_results = []
         self.qapp.aboutToQuit.connect(self.pool.waitForDone)
         self.windows: list[QWidget] = []
         self.toasts = ToastStack()
@@ -118,11 +121,6 @@ class DragShiftApp(QObject):
         self.watcher.toggle_ring.connect(self.menu.next_ring)
         self.watcher.hide_menu.connect(self.menu.close_menu)
         self.watcher.start()
-
-        from .desktop import DesktopWindow
-        self.desktop = DesktopWindow(self)
-        from .tray_panel import TrayPanel
-        self.tray_panel = TrayPanel(self)
 
         # files handed over by "Send to", the right-click menu, or a second launch
         self._pending: list[str] = []
@@ -172,6 +170,46 @@ class DragShiftApp(QObject):
         self._tray_health_timer = QTimer(self, interval=30000, timeout=self._check_tray_health)
         self._tray_health_timer.start()
         QTimer.singleShot(800, self._check_tray_health)
+
+    @property
+    def desktop(self):
+        """Load document libraries and the workspace only when a user needs them."""
+        if self._desktop is None:
+            from .desktop import DesktopWindow
+            self._desktop = DesktopWindow(self)
+            self._desktop.closed_to_tray.connect(lambda: QTimer.singleShot(0, self.release_idle_caches))
+            for result in self._recent_results:
+                self._desktop.record_result(result, refresh_library=False)
+            self._desktop.set_busy(self.active_jobs > 0)
+        return self._desktop
+
+    @property
+    def tray_panel(self):
+        if self._tray_panel is None:
+            from .tray_panel import TrayPanel
+            self._tray_panel = TrayPanel(self)
+        return self._tray_panel
+
+    def _set_busy(self):
+        if self._desktop is not None:
+            self._desktop.set_busy(self.active_jobs > 0, "Обрабатываем файлы…")
+        else:
+            for window in list(self.windows):
+                if hasattr(window, "set_processing"):
+                    window.set_processing(self.active_jobs > 0)
+
+    def release_idle_caches(self):
+        """Free decoded document/image caches after the user returns to the tray."""
+        if self.active_jobs or (self._desktop and self._desktop.isVisible()) or any(window.isVisible() for window in self.windows):
+            return
+        # Looking in sys.modules does not load PDF processing into a cold tray.
+        fitz = sys.modules.get("pymupdf")
+        if fitz is not None:
+            fitz.TOOLS.store_shrink(100)
+        from PySide6.QtGui import QPixmapCache
+        QPixmapCache.clear()
+        import gc
+        gc.collect()
 
     def trigger_label(self) -> str:
         return dict(TRIGGERS).get(self.settings.get("trigger"), "Shift")
@@ -245,6 +283,7 @@ class DragShiftApp(QObject):
         return human_size(file_size(paths[0]))
 
     def build_rings(self, paths: list[str]) -> dict[str, list[Item]]:
+        from . import convert
         cat = category(paths[0])
         if cat is None:
             return {"Unsupported": []}
@@ -293,6 +332,7 @@ class DragShiftApp(QObject):
             self.show_main()
             return
         if kind == "convert":
+            from . import convert
             if cat == "image" and name == "PDF" and len(paths) > 1:
                 self.submit(f"convert:{name}", paths, lambda: convert.images_to_single_pdf(paths),
                             f"Combining {len(paths)} images…")
@@ -301,6 +341,7 @@ class DragShiftApp(QObject):
                 self.submit(f"convert:{name}", paths,
                             lambda: [o for p in paths for o in convert.convert(p, cat, name)], verb)
             return
+        from . import imaging, tools
         if cat == "pdf":
             if name == "Merge":
                 self.submit("tool:Merge", paths, lambda: [imaging.merge_pdfs(paths)], "Merging…")
@@ -336,7 +377,11 @@ class DragShiftApp(QObject):
             w.submit = self.submit
         self.windows.append(w)
         w.setWindowIcon(make_icon())
-        w.destroyed.connect(lambda *_: self.windows.remove(w) if w in self.windows else None)
+        def closed(*_):
+            if w in self.windows:
+                self.windows.remove(w)
+            QTimer.singleShot(0, self.release_idle_caches)
+        w.destroyed.connect(closed)
         if hasattr(w, "present"):
             w.present()
         else:
@@ -347,7 +392,7 @@ class DragShiftApp(QObject):
     def submit(self, action: str, srcs: list, fn, working: str = "Working…", extra: str = ""):
         """Run in the background. A spinner card appears only if it takes > 150 ms."""
         self.active_jobs += 1
-        self.desktop.set_busy(True, "Обрабатываем файлы…")
+        self._set_busy()
         state = {"card": None, "finished": False}
         names = Path(srcs[0]).name if len(srcs) == 1 else f"{len(srcs)} files"
 
@@ -365,8 +410,9 @@ class DragShiftApp(QObject):
             card = state["card"] or self.toasts.new()
             card.done(r)
             self.active_jobs -= 1
-            self.desktop.set_busy(self.active_jobs > 0)
+            self._set_busy()
             self.record_result(r)
+            QTimer.singleShot(0, self.release_idle_caches)
 
         def failed(msg):
             release(job)
@@ -374,8 +420,10 @@ class DragShiftApp(QObject):
             card = state["card"] or self.toasts.new()
             card.error("Couldn't finish", msg)
             self.active_jobs -= 1
-            self.desktop.set_busy(self.active_jobs > 0)
-            self.desktop.show_error(msg)
+            self._set_busy()
+            if self._desktop is not None:
+                self._desktop.show_error(msg)
+            QTimer.singleShot(0, self.release_idle_caches)
 
         job.sig.done.connect(done)
         job.sig.failed.connect(failed)
@@ -388,11 +436,14 @@ class DragShiftApp(QObject):
         self.record_result(result)
 
     def record_result(self, result):
-        self.desktop.record_result(result)
+        self._recent_results.append(result)
+        self._recent_results = self._recent_results[-50:]
+        if self._desktop is not None:
+            self._desktop.record_result(result)
         if result.outs:
             self.settings.set('last_result', str(Path(result.outs[-1]).absolute()))
-        if self.tray_panel.isVisible():
-            self.tray_panel.refresh()
+        if self._tray_panel is not None and self._tray_panel.isVisible():
+            self._tray_panel.refresh()
 
     # ------------------------------------------------------------ misc
     def _tray_click(self, reason):
@@ -419,7 +470,7 @@ class DragShiftApp(QObject):
         self.tray_panel.popup(anchor)
 
     def reopen_if_hidden(self):
-        if not self.desktop.isVisible() and not self.tray_panel.isVisible() and not any(w.isVisible() for w in self.windows):
+        if not (self._desktop and self._desktop.isVisible()) and not (self._tray_panel and self._tray_panel.isVisible()) and not any(w.isVisible() for w in self.windows):
             self.show_main()
 
     def status_diagnostics(self):
@@ -437,6 +488,9 @@ class DragShiftApp(QObject):
                     result["activation_policy"] = int(platform_mac.AppKit.NSApplication.sharedApplication().activationPolicy())
             except Exception:
                 pass
+        result["workspace_loaded"] = self._desktop is not None
+        result["active_jobs"] = self.active_jobs
+        result["watcher"] = self.watcher.diagnostics()
         return result
 
     def _check_tray_health(self):
@@ -476,7 +530,8 @@ class DragShiftApp(QObject):
             self.show_main()
 
     def show_main(self):
-        self.tray_panel.hide()
+        if self._tray_panel is not None:
+            self._tray_panel.hide()
         self.desktop.showNormal()
         if IS_MAC:
             from . import platform_mac
@@ -499,11 +554,11 @@ class DragShiftApp(QObject):
 
     def request_quit(self):
         if self.active_jobs:
-            QMessageBox.information(self.desktop, "Идёт обработка",
+            QMessageBox.information(self._desktop, "Идёт обработка",
                 f"Дождитесь завершения обработки файлов, затем закройте {APP_NAME}.")
             self.show_main()
             return
-        library = getattr(self.desktop, "library", None)
+        library = getattr(self._desktop, "library", None)
         if library is not None and not library.confirm_leave():
             return
         # QApplication.quit bypasses individual closeEvent handlers. Let each
@@ -528,16 +583,20 @@ class DragShiftApp(QObject):
         self.watcher.set_key(self.settings.get("trigger"))
         self.tray.setToolTip(f"{APP_NAME} · dna.apps — открыть меню")
         self.tray.setIcon(make_tray_icon())
-        self.desktop.refresh_settings()
+        if self._desktop is not None:
+            self._desktop.refresh_settings()
         self.qapp.setWindowIcon(make_icon())
-        self.desktop.setWindowIcon(make_icon())
-        self.tray_panel.refresh()
+        if self._desktop is not None:
+            self._desktop.setWindowIcon(make_icon())
+        if self._tray_panel is not None:
+            self._tray_panel.refresh(scan_files=False)
 
     def set_theme(self, mode):
         if mode not in {"system", "light", "dark"}:
             return
         self.settings.set("theme", mode)
-        self.tray_panel.refresh()
+        if self._tray_panel is not None:
+            self._tray_panel.refresh(scan_files=False)
 
     def show_welcome(self):
         self.open_window(WelcomeWindow(self.settings, self.trigger_label()))
@@ -590,12 +649,12 @@ def send_to_running(payload: dict) -> bool:
 
 
 def setup_logging():
-    """Errors go to %LOCALAPPDATA%\\DragShift\\log.txt (pythonw / the .exe have no console)."""
+    """Errors go to %LOCALAPPDATA%\\DocuFreedom\\log.txt (pythonw / the .exe have no console)."""
     import faulthandler
     if IS_MAC:
         base = Path.home() / "Library" / "Logs" / "DocuFreedom"
     else:
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share") / "DragShift"
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share") / "DocuFreedom"
     base.mkdir(parents=True, exist_ok=True)
     path = base / "log.txt"
     if path.exists() and path.stat().st_size > 1_000_000:
@@ -621,7 +680,7 @@ def main(argv: list[str] | None = None) -> int:
     if IS_WIN:
         try:  # crisp taskbar/tray icon grouping
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DragShift.App")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("dna.apps.DocuFreedom")
         except Exception:
             pass
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
@@ -673,7 +732,7 @@ def main(argv: list[str] | None = None) -> int:
     elif "--quiet" not in argv:
         QTimer.singleShot(120, app.show_tray)
     result = qapp.exec()
-    app.watcher.timer.stop()
+    app.watcher.stop()
     app.pool.waitForDone()
     QThreadPool.globalInstance().waitForDone()
     from PySide6.QtCore import QCoreApplication, QEvent
@@ -685,6 +744,7 @@ def main(argv: list[str] | None = None) -> int:
 def selftest() -> int:
     """Used by CI on the frozen .exe: exercise every library and build the UI, then exit."""
     import tempfile
+    from . import convert, imaging, tools
     from PIL import Image
     try:
         with tempfile.TemporaryDirectory() as d:

@@ -15,6 +15,7 @@ These notices do not replace the licenses of individual dependencies.
 | LibreOffice 26.8.1 | MPL-2.0 and bundled component licenses; <https://www.libreoffice.org/licenses/> |
 | pikepdf / qpdf | MPL-2.0 / Apache-2.0; <https://github.com/pikepdf/pikepdf> |
 | pyHanko | MIT; <https://github.com/MatthiasValvekens/pyHanko> |
+| PyWinRT 3.2.1 (Windows runtime and API projections) | MIT; [upstream source](https://github.com/pywinrt/pywinrt/tree/v3.2.1), [runtime package](https://pypi.org/project/winrt-runtime/3.2.1/) |
 
 Python, Pillow, NumPy, python-docx, openpyxl, python-pptx, PyObjC, and other
 packages retain their own terms. Copies of their distributed LICENSE/NOTICE
@@ -25,7 +26,8 @@ component notices are in `vendor/ghostscript/licenses/` in source and
 The app uses dynamically bundled Python and Qt libraries. Source code,
 dependency versions, upstream source locations, and rebuild instructions are
 available in this repository: see `requirements-macos.lock`,
-`docs/DEPENDENCY-SOURCES.md`, and `build-mac.command`. The official Ghostscript
+`requirements-windows.lock`, `docs/DEPENDENCY-SOURCES.md`, `build-mac.command`,
+and `build-windows.ps1`. The official Ghostscript
 source archive accompanies tagged releases; its checksum and download URL
 are recorded in `vendor/ghostscript/NOTICE.md` and the build script.
 
@@ -35,6 +37,15 @@ URLs and source checksums are recorded in `vendor/libreoffice/NOTICE.md` in
 this repository and `libreoffice/NOTICE.md` in the installed app. The source
 archives are freely downloadable from The Document Foundation. No LibreOffice
 source modifications are made by DocuFreedom.
+
+Windows packages keep LibreOffice and Ghostscript as separate local runtimes
+under the application's `_internal` directory. Their exact binary checksums,
+source locations, and component notices are described in
+[Windows runtime notices](scripts/windows-runtime-notices.md), also included
+as `WINDOWS-RUNTIME-NOTICES.md` in Windows distributions. PyWinRT is used to
+call the local Windows OCR API on demand. Microsoft Windows, its OCR language
+packs, scanner drivers, and Microsoft Print to PDF are operating-system
+components and are not redistributed by DocuFreedom.
 
 The dog artwork is custom artwork for DocuFreedom. Drinkit and PDF24 are design
 and capability references only; no affiliation or endorsement is implied.

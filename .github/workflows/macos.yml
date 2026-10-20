@@ -59,4 +59,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mapfile -d '' files < <(find release-assets -type f -print0)
-          gh release create "$GITHUB_REF_NAME" "${files[@]}" --title "DocuFreedom $GITHUB_REF_NAME" --notes-file docs/RELEASE-NOTES.md --verify-tag
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release already published; keeping its verified assets unchanged."
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --title "DocuFreedom $GITHUB_REF_NAME" --notes-file docs/RELEASE-NOTES.md --verify-tag
+          fi

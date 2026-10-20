@@ -1,11 +1,19 @@
 # PyInstaller spec. ONEFILE=1 -> portable single exe; otherwise a folder for the installer.
 import os
 import sys
-from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata, collect_dynamic_libs, collect_delvewheel_libs_directory
 
 onefile = os.environ.get("ONEFILE") == "1"
+if sys.platform == "win32" and onefile:
+    raise RuntimeError("Use the portable ZIP build: one-file extraction wastes memory/disk on every tray launch.")
 heif_datas, heif_bins, heif_hidden = collect_all("pillow_heif")
 extra_data = []
+extra_binaries = []
+if sys.platform == "win32":
+    # Wheel DLLs live beside the package in pikepdf.libs, including QPDF.
+    wheel_data, wheel_binaries = collect_delvewheel_libs_directory("pikepdf")
+    extra_data += wheel_data
+    extra_binaries += wheel_binaries
 for package in ("pyhanko", "pyhanko_certvalidator", "pikepdf", "certifi", "docx", "pptx", "openpyxl", "jsonschema_specifications"):
     extra_data += collect_data_files(package)
 for package in ("pyHanko", "pyhanko-certvalidator", "pikepdf"):
@@ -19,8 +27,8 @@ a = Analysis(
     ["run.py"],
     datas=[("dragshift/assets", "dragshift/assets"), ("licenses", "licenses"), ("THIRD-PARTY-NOTICES.md", "."), ("LICENSE", "."), ("CREDITS.md", "."), ("docs/FEATURES-RU.md", "."),
            ("scripts/runtime/docx-parts.txt", "docx/parts")] + heif_datas + extra_data,
-    binaries=heif_bins + collect_dynamic_libs("pikepdf", search_patterns=["*.dylib", "*.so"]) + ([("vendor/ghostscript/bin/gs", "ghostscript/bin")] if sys.platform == "darwin" else []),
-    hiddenimports=(["win32com.client"] if sys.platform == "win32" else ["AppKit", "Quartz", "Vision", "CoreML", "objc"]) + ["PySide6.QtNetwork", "PySide6.QtPrintSupport"] + heif_hidden + collect_submodules("pyhanko") + collect_submodules("pyhanko_certvalidator") + collect_submodules("asn1crypto") + collect_submodules("oscrypto") + collect_submodules("fontTools"),
+    binaries=heif_bins + extra_binaries + collect_dynamic_libs("pikepdf", search_patterns=["*.dylib", "*.so", "*.dll"]) + ([("vendor/ghostscript/bin/gs", "ghostscript/bin")] if sys.platform == "darwin" else []),
+    hiddenimports=(["win32com.client"] + collect_submodules("winrt") if sys.platform == "win32" else ["AppKit", "Quartz", "Vision", "CoreML", "objc"]) + ["PySide6.QtNetwork", "PySide6.QtPrintSupport"] + heif_hidden + collect_submodules("pyhanko") + collect_submodules("pyhanko_certvalidator") + collect_submodules("asn1crypto") + collect_submodules("oscrypto") + collect_submodules("fontTools"),
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQml",
               "PySide6.QtQuick", "PySide6.Qt3DCore", "PySide6.QtMultimedia", "PySide6.QtCharts",
               "PySide6.QtDataVisualization", "PySide6.QtPdf", "PySide6.QtSql", "PySide6.QtTest",
@@ -40,11 +48,11 @@ a.datas = [d for d in a.datas if "translations" not in d[0].replace("\\", "/")]
 
 pyz = PYZ(a.pure)
 IS_MAC = sys.platform == "darwin"
-common = dict(name="DocuFreedom" if IS_MAC else "DragShift", console=False, upx=False)
+common = dict(name="DocuFreedom", console=False, upx=False)
 if IS_MAC:
     common.update(icon="dragshift/assets/dragshift.icns")
 else:
-    common.update(icon="dragshift/assets/dragshift.ico", version="installer/version_info.txt")
+    common.update(icon="build/DocuFreedom.ico", version="installer/version_info.txt")
 
 if IS_MAC:
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, argv_emulation=False, **common)
@@ -57,8 +65,8 @@ if IS_MAC:
         info_plist={
             "CFBundleName": "DocuFreedom",
             "CFBundleDisplayName": "DocuFreedom",
-            "CFBundleShortVersionString": "4.1.0",
-            "CFBundleVersion": "410",
+            "CFBundleShortVersionString": "4.2.0",
+            "CFBundleVersion": "420",
             "LSUIElement": True,
             "LSMinimumSystemVersion": "15.0",
             "CFBundleDevelopmentRegion": "ru",
@@ -81,4 +89,4 @@ elif onefile:
     exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], **common)
 else:
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, **common)
-    coll = COLLECT(exe, a.binaries, a.datas, name="DragShift", upx=False)
+    coll = COLLECT(exe, a.binaries, a.datas, name="DocuFreedom", upx=False)

@@ -144,11 +144,66 @@ def test_download_access_failure_retains_last_known_file(qt, tmp_path, monkeypat
     panel = tray_panel.TrayPanel(controller)
     panel.refresh()
     wait_until(lambda: not panel._recent_scanner.busy)
-    panel.refresh()
+    panel.refresh(force_download=True)
     wait_until(lambda: not panel._recent_scanner.busy)
     assert panel.download.path == path
     assert panel.download.finder_btn.isEnabled()
     assert 'Нет доступа' in panel.download.info.text()
+    panel.deleteLater()
+
+
+def test_recent_scans_coalesce_bursts_but_refresh_output_metadata(qt, tmp_path, monkeypatch):
+    download = tmp_path / 'latest.pdf'
+    download.write_bytes(b'pdf')
+    output_folder = tmp_path / 'outputs'
+    output_folder.mkdir()
+    scan = Mock(return_value=(tray_panel.file_info(download), ''))
+    monkeypatch.setattr(tray_panel, 'scan_downloads', scan)
+    scanner = tray_panel.LatestFilesScanner()
+    updates = []
+    scanner.updated.connect(lambda kind, info, error: updates.append((kind, info)))
+    scanner.request(None)
+    wait_until(lambda: not scanner.busy)
+    result = output_folder / 'result.pdf'
+    result.write_bytes(b'result')
+    for _ in range(5):
+        scanner.request(result)
+        wait_until(lambda: not scanner.busy)
+    assert scan.call_count == 1
+    assert updates[-1] == ('result', tray_panel.file_info(result))
+    scanner._download_scanned_at -= tray_panel.DOWNLOAD_CACHE_SECONDS + 1
+    scanner.request(result)
+    wait_until(lambda: not scanner.busy)
+    assert scan.call_count == 2
+    scanner.deleteLater()
+
+
+def test_new_download_invalidates_recent_scan_cache_immediately(qt, tmp_path, monkeypatch):
+    scan = Mock(wraps=tray_panel.scan_downloads)
+    monkeypatch.setattr(tray_panel, 'scan_downloads', scan)
+    scanner = tray_panel.LatestFilesScanner()
+    updates = []
+    scanner.updated.connect(lambda kind, info, error: updates.append((kind, info)))
+    scanner.request(None)
+    wait_until(lambda: not scanner.busy)
+    download = tmp_path / 'just-downloaded.pdf'
+    download.write_bytes(b'pdf')
+    scanner.request(None)
+    wait_until(lambda: not scanner.busy)
+    assert scan.call_count == 2
+    assert updates[-1] == ('download', tray_panel.file_info(download))
+    scanner.deleteLater()
+
+
+def test_theme_status_refresh_performs_no_filesystem_work(qt, monkeypatch):
+    controller = Mock(active_jobs=0)
+    controller.settings.get.side_effect = lambda key: 'light' if key == 'theme' else ''
+    panel = tray_panel.TrayPanel(controller)
+    request = Mock()
+    monkeypatch.setattr(panel._recent_scanner, 'request', request)
+    panel.refresh(scan_files=False)
+    assert panel.theme_buttons['light'].isChecked()
+    request.assert_not_called()
     panel.deleteLater()
 
 
