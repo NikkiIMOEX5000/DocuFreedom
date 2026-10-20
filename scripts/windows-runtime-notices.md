@@ -32,10 +32,15 @@ after PyInstaller packaging. DocuFreedom makes no LibreOffice source changes.
 - Source archive is also distributed alongside DocuFreedom release downloads.
 - Build documentation: https://ghostscript.readthedocs.io/en/gs10.08.0/Make.html
 
-The original installer runs only on the build machine to populate the vendor
-directory. End-user installations simply copy the extracted runtime. No
+The original NSIS installer payload is extracted with 7-Zip on the build machine
+without running its installer. End-user installations copy the runtime. No
 Ghostscript source changes are made. Generic RGB/CMYK ICC profiles accompany
 the engine; professional print jobs should use the receiving printer's profile.
+
+Microsoft Visual C++ 14 redistributable DLLs from the pinned PySide6 Windows wheel
+are copied unchanged beside the engines when absent. This permits app-local
+operation without installing a shared Visual C++ runtime. The original Microsoft
+redistributable package supplied by Ghostscript remains in its runtime folder.
 
 ## Windows OCR
 

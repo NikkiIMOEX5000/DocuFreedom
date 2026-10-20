@@ -1,0 +1,114 @@
+name: Publish verified Windows artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing release tag, for example v4.2.0'
+        required: true
+        type: string
+      source_run_id:
+        description: 'Successful Windows build and tests run ID (no rebuild)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-windows-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify source run, tag and artifact provenance
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid release tag'; exit 1; }
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid run ID'; exit 1; }
+          git rev-parse "refs/tags/$RELEASE_TAG^{commit}" > tag-commit.txt
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" > source-run.json
+          gh api "repos/$GH_REPO/actions/workflows/windows.yml" > source-workflow.json
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID/artifacts" > source-artifacts.json
+          gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > release.json
+          python - <<'PY'
+          import json, os, pathlib
+          read = lambda name: json.loads(pathlib.Path(name).read_text())
+          run = read('source-run.json')
+          workflow = read('source-workflow.json')
+          repo = os.environ['GH_REPO'].lower()
+          tag_commit = pathlib.Path('tag-commit.txt').read_text().strip()
+          checks = {
+              'successful completed run': run['status'] == 'completed' and run['conclusion'] == 'success',
+              'run belongs to this repository': run['repository']['full_name'].lower() == repo,
+              'source commit belongs to this repository': run['head_repository']['full_name'].lower() == repo,
+              'official Windows workflow': run['workflow_id'] == workflow['id'] and workflow['path'] == '.github/workflows/windows.yml',
+              'trusted build event': run['event'] in {'push', 'workflow_dispatch'},
+              'tag points to tested commit': run['head_sha'] == tag_commit,
+          }
+          for label, passed in checks.items():
+              if not passed:
+                  raise SystemExit(f'Provenance check failed: {label}')
+              print(f'Verified: {label}')
+          artifacts = [item for item in read('source-artifacts.json')['artifacts']
+                       if item['name'] == 'DocuFreedom-windows-x64' and not item['expired']]
+          if len(artifacts) != 1:
+              raise SystemExit('Expected exactly one unexpired DocuFreedom-windows-x64 artifact')
+          print(f"Verified artifact: {artifacts[0]['id']}")
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: DocuFreedom-windows-x64
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: release-assets
+      - name: Verify checksums and attach only missing release assets
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum --check SHA256SUMS-windows.txt
+          python - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          tag = os.environ['RELEASE_TAG']
+          version = tag[1:]
+          expected = [f'DocuFreedom-{version}-windows-x64-setup.exe',
+                      f'DocuFreedom-{version}-windows-x64-portable.zip',
+                      'SHA256SUMS-windows.txt', 'ghostscript-10.08.0.tar.xz']
+          if {path.name for path in pathlib.Path('.').iterdir()} != set(expected):
+              raise SystemExit('Artifact contents do not match the requested release version')
+          # Refresh immediately before publication in case another job attached
+          # the macOS release assets while this job was downloading.
+          release = json.loads(subprocess.check_output([
+              'gh', 'api', f"repos/{os.environ['GH_REPO']}/releases/tags/{tag}"]))
+          assets = {asset['name']: asset for asset in release['assets']}
+          missing = []
+          for name in expected:
+              path = pathlib.Path(name)
+              if not path.is_file():
+                  raise SystemExit(f'Missing verified artifact: {name}')
+              if name in assets:
+                  with path.open('rb') as source:
+                      digest = 'sha256:' + hashlib.file_digest(source, 'sha256').hexdigest()
+                  if assets[name].get('digest') != digest:
+                      raise SystemExit(f'Published asset differs or has no digest: {name}; retained unchanged')
+                  print(f'Already published with matching digest: {name}')
+              else:
+                  missing.append(path)
+          for path in missing:
+              subprocess.run(['gh', 'release', 'upload', tag, str(path)], check=True)
+          PY

@@ -25,6 +25,24 @@ if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }
 # Keep engines intact; PyInstaller must not rewrite their DLLs or search paths.
 Copy-Item -Recurse vendor/windows/libreoffice dist/DocuFreedom/_internal/libreoffice
 Copy-Item -Recurse vendor/windows/ghostscript dist/DocuFreedom/_internal/ghostscript
+# The official GS installer normally installs Microsoft's shared CRT. Portable
+# builds instead keep the unmodified redistributable DLLs beside each engine.
+# PySide6's pinned Windows wheel already distributes this compatible VC14 CRT.
+@'
+from pathlib import Path
+import shutil
+import PySide6
+source = Path(PySide6.__file__).parent
+required = ('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')
+assert all((source / name).is_file() for name in required), 'MSVC runtime DLL missing from Qt wheel'
+for directory in ('ghostscript/bin', 'libreoffice/program'):
+    target = Path('dist/DocuFreedom/_internal') / directory
+    for pattern in ('msvcp140*.dll', 'vcruntime140*.dll'):
+        for library in source.glob(pattern):
+            if not (target / library.name).exists():
+                shutil.copy2(library, target / library.name)
+'@ | & $Python -
+if ($LASTEXITCODE -ne 0) { throw 'App-local Microsoft runtime packaging failed' }
 Copy-Item scripts/windows-runtime-notices.md dist/DocuFreedom/WINDOWS-RUNTIME-NOTICES.md
 $app = Join-Path $PSScriptRoot 'dist/DocuFreedom/DocuFreedom.exe'
 $smoke = Start-Process -FilePath $app -ArgumentList '--selftest' -Wait -PassThru

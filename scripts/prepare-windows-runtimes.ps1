@@ -1,11 +1,42 @@
 # Official standalone runtimes. Nothing is installed on the end user's machine.
-# MSI administrative extraction and the Ghostscript installer run only at build time.
+# MSI administrative extraction and NSIS payload extraction run only at build time.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $ProjectDir = Split-Path -Parent $PSScriptRoot
 $Sources = Join-Path $ProjectDir 'vendor/sources'
 $WindowsVendor = Join-Path $ProjectDir 'vendor/windows'
 New-Item -ItemType Directory -Force $Sources, $WindowsVendor | Out-Null
+
+function Invoke-BuildPhase([string]$Name, [string]$Executable, [string[]]$Arguments,
+                           [int]$TimeoutSeconds, [int[]]$AllowedExitCodes = @(0)) {
+    Write-Host "Starting $Name (timeout ${TimeoutSeconds}s)"
+    $stdout = Join-Path $WindowsVendor "$Name.stdout.log"
+    $stderr = Join-Path $WindowsVendor "$Name.stderr.log"
+    $process = Start-Process -FilePath $Executable -ArgumentList $Arguments -PassThru `
+        -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    # Keep the handle so ExitCode remains available after the process exits.
+    $null = $process.Handle
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $nextStatus = 30
+    while (-not $process.WaitForExit(1000)) {
+        if ($watch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+            & "$env:SystemRoot/System32/taskkill.exe" /PID $process.Id /T /F | Out-Null
+            throw "$Name exceeded ${TimeoutSeconds}s; stopped its process tree. See $stderr"
+        }
+        if ($watch.Elapsed.TotalSeconds -ge $nextStatus) {
+            Write-Host "$Name is running ($([int]$watch.Elapsed.TotalSeconds)s)"
+            $nextStatus += 30
+        }
+    }
+    $process.WaitForExit()
+    foreach ($log in @($stdout, $stderr)) {
+        if (Test-Path $log) { Get-Content $log -Tail 20 | Write-Host }
+    }
+    if ($process.ExitCode -notin $AllowedExitCodes) {
+        throw "$Name failed ($($process.ExitCode)); see $stderr"
+    }
+    Write-Host "Completed $Name in $([int]$watch.Elapsed.TotalSeconds)s"
+}
 
 function Get-VerifiedFile([string]$Url, [string]$Name, [string]$Sha256) {
     $path = Join-Path $Sources $Name
@@ -46,8 +77,8 @@ foreach ($path in @($officeExtraction, $officeRuntime, $gsRuntime)) {
 }
 New-Item -ItemType Directory $officeExtraction | Out-Null
 $msiLog = Join-Path $WindowsVendor 'libreoffice-extract.log'
-$msi = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', "`"$officeMsi`"", '/qn', "TARGETDIR=`"$officeExtraction`"", '/L*v', "`"$msiLog`"")
-if ($msi.ExitCode -notin @(0, 3010)) { throw "LibreOffice extraction failed ($($msi.ExitCode)); see $msiLog" }
+Invoke-BuildPhase 'libreoffice-extract' 'msiexec.exe' `
+    @('/a', "`"$officeMsi`"", '/qn', "TARGETDIR=`"$officeExtraction`"", '/L*v', "`"$msiLog`"") 600 @(0, 3010)
 $officeProgram = @(Get-ChildItem $officeExtraction -Filter soffice.com -Recurse -File)
 if ($officeProgram.Count -ne 1) { throw 'Expected exactly one extracted LibreOffice program directory' }
 Move-Item $officeProgram[0].Directory.Parent.FullName $officeRuntime
@@ -57,16 +88,17 @@ if (Test-Path $officeExtraction) { Remove-Item -Recurse -Force $officeExtraction
 # Retain runtime resources and notices, but not the administrative MSI database.
 Get-ChildItem $officeRuntime -Filter '*.msi' -File | Remove-Item -Force
 
-# NSIS /D must be the final argument and must not be quoted, even with spaces.
-$gsInstall = Start-Process -FilePath $gsInstaller -Wait -PassThru -ArgumentList "/S /D=$gsRuntime"
-if ($gsInstall.ExitCode -ne 0) { throw "Ghostscript extraction failed ($($gsInstall.ExitCode))" }
+# Ghostscript 10.08.0's official NSIS .onInit calls SetSilent normal, overriding
+# /S. Extract its verified payload instead of running an interactive installer.
+# This also avoids modifying registry entries, PATH or other GS installations.
+$sevenZip = Join-Path $env:ProgramFiles '7-Zip/7z.exe'
+if (-not (Test-Path $sevenZip)) { throw 'Install 7-Zip to extract the official Ghostscript payload' }
+Invoke-BuildPhase 'ghostscript-extract' $sevenZip @('x', '-y', "`"$gsInstaller`"", "-o`"$gsRuntime`"") 180
 if (-not (Test-Path "$gsRuntime/bin/gswin64c.exe")) { throw 'Ghostscript executable missing' }
 if (-not (Test-Path "$gsRuntime/iccprofiles/srgb.icc")) { throw 'Ghostscript ICC profiles missing' }
 Copy-Item "$PSScriptRoot/windows-runtime-notices.md" "$officeRuntime/DocuFreedom-NOTICE.md"
 Copy-Item "$PSScriptRoot/windows-runtime-notices.md" "$gsRuntime/DocuFreedom-NOTICE.md"
 
 $env:PYTHONDONTWRITEBYTECODE = '1'
-& "$officeRuntime/program/soffice.com" --headless --version
-if ($LASTEXITCODE -ne 0) { throw 'LibreOffice runtime does not launch' }
-& "$gsRuntime/bin/gswin64c.exe" --version
-if ($LASTEXITCODE -ne 0) { throw 'Ghostscript runtime does not launch' }
+Invoke-BuildPhase 'libreoffice-version' "$officeRuntime/program/soffice.com" @('--headless', '--version') 30
+Invoke-BuildPhase 'ghostscript-version' "$gsRuntime/bin/gswin64c.exe" @('--version') 30

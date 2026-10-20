@@ -35,6 +35,14 @@ jobs:
           architecture: x64
           cache: pip
           cache-dependency-path: requirements-windows.lock
+      - name: Cache official runtime downloads (checksums are always reverified)
+        uses: actions/cache@v4
+        with:
+          key: windows-runtimes-lo26.8.1-gs10.08.0
+          path: |
+            vendor/sources/LibreOffice_26.8.1_Win_x86-64.msi
+            vendor/sources/gs10080w64.exe
+            vendor/sources/ghostscript-10.08.0.tar.xz
       - name: Check PowerShell syntax
         run: |
           $ErrorActionPreference = 'Stop'
