@@ -1,6 +1,6 @@
 # Validation report — DocuFreedom 4.2.0
 
-Date: 2026-10-20. Test inputs are synthetic documents; no personal documents are published.
+Date: 2026-10-20–21. Test inputs are synthetic documents; no personal documents are published.
 
 ## Source regression suite
 
@@ -14,13 +14,15 @@ Cold-start tests verify that the tray and preference changes do not import Pillo
 
 `scripts/benchmark-idle.py` provides an isolated 15-second-per-phase source benchmark using temporary preferences and a generated PDF. The offscreen platform exercises the fallback watcher: approximately **10 input timer callbacks/second**, compared with approximately **67/second** in 4.1. The real macOS event backend is checked separately because offscreen Qt cannot install AppKit observers.
 
+A separate live Cocoa cold-tray fixture measured 19.61 seconds with **zero input-timer callbacks**, two native mouse observers, no workspace or processing imports, and an inactive timer throughout. Process CPU time was 0.0086 seconds (approximately **0.044% of one core**); RSS was **69 MiB in that run**. This is an isolated source-runtime measurement, not a fixed packaged-app memory guarantee.
+
 Process RSS varies with macOS compression, loaded libraries, file caches, and the documents opened. These checks establish bounded rendering and reduced background work; they do not promise a fixed RAM footprint or zero power use. Conversion engines still consume resources while processing documents.
 
 ## Release validation
 
 The source-runtime self-test passed **39 checks**. A live Cocoa material fixture passed **24 checks** for light/dark native blur, Retina alpha masks, transparent windows, settled animation, and complete cleanup on hide.
 
-Frozen macOS packaging and actual Windows CI checks are recorded here when completed. Local Mac adapter tests do not establish that a Windows installer has run successfully. Physical printers/scanners and arbitrary user documents are outside the automated suite.
+The frozen macOS app passed **41 smoke checks**, including real Office conversion, OCR, PDF standards, signatures and edited-document saving. Deep strict code-signature verification passed after conversions. The macOS DMG was built successfully. Windows CI is being validated on an actual Windows runner; local Mac adapter tests alone do not establish Windows installation success. Physical printers/scanners and arbitrary user documents are outside the automated suite.
 
 ---
 

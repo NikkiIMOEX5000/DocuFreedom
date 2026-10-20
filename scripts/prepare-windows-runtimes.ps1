@@ -51,7 +51,11 @@ if ($msi.ExitCode -notin @(0, 3010)) { throw "LibreOffice extraction failed ($($
 $officeProgram = @(Get-ChildItem $officeExtraction -Filter soffice.com -Recurse -File)
 if ($officeProgram.Count -ne 1) { throw 'Expected exactly one extracted LibreOffice program directory' }
 Move-Item $officeProgram[0].Directory.Parent.FullName $officeRuntime
-Remove-Item -Recurse -Force $officeExtraction
+# Some MSI administrative images put program/ directly under TARGETDIR. In
+# that layout Move-Item has already moved the extraction directory itself.
+if (Test-Path $officeExtraction) { Remove-Item -Recurse -Force $officeExtraction }
+# Retain runtime resources and notices, but not the administrative MSI database.
+Get-ChildItem $officeRuntime -Filter '*.msi' -File | Remove-Item -Force
 
 # NSIS /D must be the final argument and must not be quoted, even with spaces.
 $gsInstall = Start-Process -FilePath $gsInstaller -Wait -PassThru -ArgumentList "/S /D=$gsRuntime"
