@@ -46,7 +46,7 @@ Processing runs locally. The webpage-to-PDF tool fetches only the URL you explic
 
 1. Download the latest `.dmg` from [Releases](https://github.com/NikkiIMOEX5000/DocuFreedom/releases).
 2. Open it and drag **DocuFreedom.app** into **Applications**.
-3. Launch DocuFreedom. Find its overlapping-squares icon in the macOS menu bar, or launch it again from Spotlight to open the full workspace.
+3. Launch DocuFreedom. Find its minimal dog-outline icon in the macOS menu bar, or launch it again from Spotlight to open the full workspace.
 
 The app runs without a Dock icon. Closing a window keeps the menu-bar companion running; use **Quit** to exit. Start at login is optional. Python, Homebrew, and separate LibreOffice or Ghostscript installations are not required to run the packaged app.
 

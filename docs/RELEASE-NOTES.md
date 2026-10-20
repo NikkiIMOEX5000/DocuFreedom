@@ -8,6 +8,7 @@ Office-to-PDF conversion now uses a bundled LibreOffice renderer. Previously, DO
 - Source documents remain unchanged; conversion saves a separate PDF copy.
 - Fixed an extra 9-point offset that LibreOffice could add to inline DOCX pictures with omitted spacing attributes.
 - Office images use lossless PDF export without downsampling.
+- The menu-bar companion now uses a minimal dog outline with small eyes and a nose, adapting automatically to light and dark menu bars.
 
 LibreOffice and Microsoft Office can render complex elements differently. Missing fonts can also change line wrapping or pagination; install the fonts used in the original document for the closest result. This release does not claim pixel-identical rendering of every Office document. PDF-to-Word remains a separate reconstruction tool with its own layout limitations.
 

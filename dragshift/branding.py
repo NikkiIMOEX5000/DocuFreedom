@@ -24,23 +24,43 @@ def app_icon(choice=None):
 
 
 def tray_icon():
-    """Two overlapping sheets with a clean negative-space separation."""
+    """Small floppy-eared dog outline, drawn as a macOS template image."""
     pix = QPixmap(66, 66)
     pix.fill(Qt.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.scale(1.5, 1.5)
-    painter.setPen(QPen(Qt.black, 3.3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    painter.scale(3, 3)
+    painter.setPen(QPen(Qt.black, 1.45, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
     painter.setBrush(Qt.NoBrush)
-    painter.drawRoundedRect(QRectF(6, 5, 25, 26), 5, 5)
-    painter.setCompositionMode(QPainter.CompositionMode_Clear)
+
+    outline = QPainterPath(QPointF(7, 4.7))
+    outline.cubicTo(8.4, 2.7, 13.6, 2.7, 15, 4.7)
+    outline.cubicTo(16.5, 4.1, 18, 6.8, 19, 11.1)
+    outline.cubicTo(20, 15.1, 18.8, 17.4, 16.9, 15.8)
+    outline.lineTo(15.6, 14.4)
+    outline.cubicTo(15.1, 17.4, 13.5, 18.8, 11, 18.8)
+    outline.cubicTo(8.5, 18.8, 6.9, 17.4, 6.4, 14.4)
+    outline.lineTo(5.1, 15.8)
+    outline.cubicTo(3.2, 17.4, 2, 15.1, 3, 11.1)
+    outline.cubicTo(4, 6.8, 5.5, 4.1, 7, 4.7)
+    painter.drawPath(outline)
+
+    ears = QPainterPath(QPointF(7, 4.7))
+    ears.cubicTo(6.3, 7, 6.1, 11.3, 6.4, 14.4)
+    ears.moveTo(15, 4.7)
+    ears.cubicTo(15.7, 7, 15.9, 11.3, 15.6, 14.4)
+    painter.drawPath(ears)
+
+    # Tiny eyes and a nose keep the contour recognizable at 19 menu-bar points.
     painter.setPen(Qt.NoPen)
     painter.setBrush(Qt.black)
-    painter.drawRoundedRect(QRectF(13, 12, 27, 28), 6, 6)
-    painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-    painter.setPen(QPen(Qt.black, 3.3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-    painter.setBrush(Qt.NoBrush)
-    painter.drawRoundedRect(QRectF(15, 14, 24, 25), 5, 5)
+    painter.drawEllipse(QPointF(8.6, 10.5), .65, .75)
+    painter.drawEllipse(QPointF(13.4, 10.5), .65, .75)
+    nose = QPainterPath(QPointF(9.7, 13.3))
+    nose.cubicTo(9.7, 12.6, 12.3, 12.6, 12.3, 13.3)
+    nose.cubicTo(12.3, 13.8, 11.4, 14.5, 11, 14.5)
+    nose.cubicTo(10.6, 14.5, 9.7, 13.8, 9.7, 13.3)
+    painter.drawPath(nose)
     painter.end()
     pix.setDevicePixelRatio(3)
     icon = QIcon(pix)
