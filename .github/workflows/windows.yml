@@ -66,15 +66,30 @@ jobs:
           & ./scripts/test-windows-bundle.ps1 -AppPath "$target/DocuFreedom.exe"
           $uninstall = Start-Process "$target/unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
+      - name: Collect diagnostics into the workspace
+        if: always()
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $diagnostics = Join-Path $env:GITHUB_WORKSPACE 'build/windows-diagnostics'
+          New-Item -ItemType Directory -Force "$diagnostics/runtime", "$diagnostics/app", "$diagnostics/app/logs" | Out-Null
+          if (Test-Path 'vendor/windows') {
+            Get-ChildItem 'vendor/windows' -Filter '*.log' -File | Copy-Item -Destination "$diagnostics/runtime"
+          }
+          $appLogs = Join-Path $env:LOCALAPPDATA 'DocuFreedom'
+          if (Test-Path "$appLogs/log.txt") {
+            Copy-Item "$appLogs/log.txt" "$diagnostics/app/log.txt"
+          }
+          if (Test-Path "$appLogs/logs") {
+            Get-ChildItem "$appLogs/logs" -Filter '*.log' -File | Copy-Item -Destination "$diagnostics/app/logs"
+          }
       - name: Upload diagnostics
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: DocuFreedom-windows-diagnostics
-          path: |
-            vendor/windows/*.log
-            ~/AppData/Local/DocuFreedom/log.txt
-            ~/AppData/Local/DocuFreedom/logs/*.log
+          path: build/windows-diagnostics/
           if-no-files-found: ignore
           retention-days: 14
       - uses: actions/upload-artifact@v4
