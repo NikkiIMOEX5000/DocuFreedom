@@ -221,7 +221,8 @@ def test_attachments_round_trip_unicode_collision_and_traversal(pdf, tmp_path):
     assert set(i["name"] for i in info) == {"Вложение.txt", "Вложение (1).txt"}
     extracted = ops.extract_attachments(out)
     assert len(extracted) == 2
-    assert all(p.read_text() == "Привет!" for p in extracted)
+    assert all(p.read_text(encoding="utf-8") == "Привет!" for p in extracted)
+    assert all(p.read_bytes() == data.read_bytes() for p in extracted)
     assert data not in extracted
     malicious = tmp_path / "Malicious.pdf"
     with fitz.open(pdf) as doc:

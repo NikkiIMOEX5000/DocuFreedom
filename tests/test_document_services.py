@@ -84,7 +84,7 @@ def test_ocr_text_multipage_and_blank_failure(tmp_path):
     line = OCRLine("Пример", 0.1, 0.1, 0.6, 0.2, 0.9)
     with patch("dragshift.document_services.recognize_image", return_value=[line]):
         result = ocr_document(source, output="txt")[0]
-    assert result.read_text() == "Пример\n\f\nПример"
+    assert result.read_text(encoding="utf-8") == "Пример\n\f\nПример"
     with patch("dragshift.document_services.recognize_image", return_value=[]), pytest.raises(UserError, match="Текст не найден"):
         ocr_document(source)
     assert not (tmp_path / "scan OCR.pdf").exists()
@@ -107,7 +107,7 @@ def test_ocr_pdf_input_and_validation(source_pdf):
 def test_html_unicode_images_links_no_scripts(tmp_path):
     source = tmp_path / "local.html"
     Image.new("RGB", (30, 30), "red").save(tmp_path / "image.png")
-    source.write_text('<html><meta charset="utf-8"><h1>Пример HTML</h1><p>Text 123</p><img src="image.png"><a href="https://example.com">Example link</a><script>secret script text</script><img src="https://example.com/remote.png"></html>')
+    source.write_text('<html><meta charset="utf-8"><h1>Пример HTML</h1><p>Text 123</p><img src="image.png"><a href="https://example.com">Example link</a><script>secret script text</script><img src="https://example.com/remote.png"></html>', encoding="utf-8")
     result = html_to_pdf(source)[0]
     with fitz.open(result) as document:
         assert "Пример HTML" in document[0].get_text()
@@ -122,7 +122,7 @@ def test_html_images_cannot_escape_source_folder(tmp_path):
     folder.mkdir()
     Image.new("RGB", (30, 30), "red").save(tmp_path / "private.png")
     source = folder / "local.html"
-    source.write_text('<p>Allowed text</p><img src="../private.png">')
+    source.write_text('<p>Allowed text</p><img src="../private.png">', encoding="utf-8")
     result = html_to_pdf(source)[0]
     with fitz.open(result) as document:
         assert len(document[0].get_images()) == 0
@@ -138,7 +138,7 @@ def test_webpage_explicit_fetch_does_not_fetch_images(tmp_path):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
-            self.wfile.write('<h1>Страница</h1><p>Requested page</p><img src="/tracking.png">'.encode())
+            self.wfile.write('<h1>Страница</h1><p>Requested page</p><img src="/tracking.png">'.encode("utf-8"))
         def log_message(self, *args):
             pass
 
@@ -266,7 +266,7 @@ def test_docx_and_unsupported_office(tmp_path):
     with pytest.raises(UserError, match="Старые"):
         office_to_pdf(tmp_path / "old.doc")
     damaged = tmp_path / "broken.xlsx"
-    damaged.write_text("not a zip")
+    damaged.write_text("not a zip", encoding="utf-8")
     with pytest.raises(UserError, match="Повреждённый"):
         office_to_pdf(damaged)
 
@@ -316,15 +316,15 @@ def test_pdf_tiff_svg_html_exports(source_pdf):
         assert image.getpixel((100, 220))[0] > 50
     svgs = export_document(source_pdf, "SVG")
     assert len(svgs) == 2
-    assert all("<svg" in path.read_text() for path in svgs)
-    markup = export_document(source_pdf, "HTML")[0].read_text()
+    assert all("<svg" in path.read_text(encoding="utf-8") for path in svgs)
+    markup = export_document(source_pdf, "HTML")[0].read_text(encoding="utf-8")
     assert "DNA.apps page 1" in markup and "DNA.apps page 2" in markup
     assert 'id="page0"' in markup and 'id="page1"' in markup
 
 
 def test_svg_to_pdf(tmp_path):
     source = tmp_path / "vector.svg"
-    source.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#67213b"/><text x="30" y="100" fill="white">Vector document</text></svg>')
+    source.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#67213b"/><text x="30" y="100" fill="white">Vector document</text></svg>', encoding="utf-8")
     result = export_document(source, "PDF")[0]
     with fitz.open(result) as document:
         assert document.page_count == 1
@@ -341,10 +341,10 @@ def test_pdf_service_idempotent_does_not_replace(tmp_path):
         assert service.is_symlink()
         assert install_pdf_service(application) == service
         service.unlink()
-        service.write_text("user content")
+        service.write_text("user content", encoding="utf-8")
         with pytest.raises(UserError, match="уже существует"):
             install_pdf_service(application)
-        assert service.read_text() == "user content"
+        assert service.read_text(encoding="utf-8") == "user content"
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS interactive capture backend")

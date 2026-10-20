@@ -5,6 +5,7 @@ import json
 import os
 import signal
 import subprocess
+import weakref
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -87,7 +88,7 @@ def test_copy_profile_output_atomicity_and_cleanup(source, fake_engine, monkeypa
     assert not list(source.parent.glob(".~*"))
 
 
-@pytest.mark.parametrize("kind", ["missing", "empty", "invalid", "encrypted", "repaired"])
+@pytest.mark.parametrize("kind", ["missing", "empty", "invalid", "broken-header", "encrypted", "repaired"])
 def test_bad_result_does_not_replace_destination(source, fake_engine, monkeypatch, kind):
     destination = source.with_suffix(".pdf")
     destination.write_bytes(b"original result")
@@ -100,6 +101,8 @@ def test_bad_result_does_not_replace_destination(source, fake_engine, monkeypatc
             output.touch()
         elif kind == "invalid":
             output.write_bytes(b"this is not a PDF")
+        elif kind == "broken-header":
+            output.write_bytes(b"%PDF-1.7\n%%EOF\n")
         elif kind in {"encrypted", "repaired"}:
             write_pdf(output, encrypted=(kind == "encrypted"))
             if kind == "repaired":
@@ -113,6 +116,36 @@ def test_bad_result_does_not_replace_destination(source, fake_engine, monkeypatc
     assert destination.read_bytes() == b"original result"
     assert all(not path.exists() for path in workspaces)
     assert not list(source.parent.glob(".~*"))
+
+
+def test_failed_parser_releases_stream_before_workspace_cleanup(source, fake_engine, monkeypatch):
+    streams = []
+    workspaces = []
+
+    def run(arguments, workspace, timeout):
+        workspaces.append(workspace)
+        (workspace / "output" / "document.pdf").write_bytes(b"invalid PDF")
+
+    def failed_parser(path):
+        # Model MuPDF's constructor: the failed frame retains an open stream,
+        # including when its parser error has a nested exception cause.
+        stream = Path(path).open("rb")
+        streams.append(weakref.ref(stream))
+        try:
+            raise ValueError("missing PDF objects")
+        except ValueError as exc:
+            raise RuntimeError("Failed to open file") from exc
+
+    monkeypatch.setattr(renderer, "_run_renderer", run)
+    monkeypatch.setattr(renderer.fitz, "open", failed_parser)
+    with pytest.raises(UserError, match="некорректный PDF") as error:
+        renderer.render_office_pdf(source, source.with_suffix(".pdf"))
+    # Keep the public exception alive as the UI would, without retaining the
+    # parser resource until a later garbage-collection cycle.
+    assert error.value is not None
+    assert streams and all(reference() is None for reference in streams)
+    assert all(not workspace.exists() for workspace in workspaces)
+    assert not source.with_suffix(".pdf").exists()
 
 
 def test_missing_engine_never_uses_approximate_fallback(source, monkeypatch):

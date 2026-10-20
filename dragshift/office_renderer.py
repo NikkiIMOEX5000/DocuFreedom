@@ -236,8 +236,16 @@ def _validate_pdf(output: Path) -> None:
                 rect = page.rect
                 if rect.is_empty or rect.is_infinite or not all(math.isfinite(value) for value in rect):
                     raise ValueError("Invalid page geometry")
-    except Exception as exc:
-        raise UserError("LibreOffice создал некорректный PDF. Результат не сохранён; исходный документ не изменён.") from exc
+    except Exception:
+        # A failed MuPDF constructor keeps its file stream in the exception's
+        # traceback. Release that chain before the private workspace is removed:
+        # Windows otherwise refuses deletion and masks this validation failure
+        # with a misleading save/permissions error. Keep file-backed validation
+        # so large PDFs do not need another full in-memory copy.
+        pass
+    else:
+        return
+    raise UserError("LibreOffice создал некорректный PDF. Результат не сохранён; исходный документ не изменён.")
 
 
 def render_office_pdf(source: str | Path, destination: str | Path, *, timeout: float = DEFAULT_TIMEOUT) -> Path:
